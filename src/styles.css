@@ -1,4 +1,5 @@
 :root {
+  --page-gutter: clamp(16px, 2vw, 48px);
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: var(--text); background: var(--bg); font-synthesis: none; text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased; color-scheme: dark;
@@ -28,7 +29,7 @@ h1, h2, h3, p { margin: 0; }
 a { color: inherit; text-decoration: none; }
 button, input, select, .panel { transition: background .2s ease, border-color .2s ease, box-shadow .2s ease; }
 ::selection { background: var(--accent-bg); color: var(--accent); }
-.app-shell { width: min(1280px, calc(100% - 80px)); margin: 0 auto; }
+.app-shell { width: calc(100% - 2 * var(--page-gutter)); margin: 0 auto; }
 .site-header { min-height: 88px; display: flex; flex-wrap: wrap; padding: 18px 0; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--subtle-border); gap: 20px; }
 .brand { max-width: 100%; display: flex; gap: 12px; align-items: center; font-size: 1.25rem; letter-spacing: -.4px; }
 .brand strong { font-weight: 730; }
@@ -244,9 +245,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
 .chart-time { align-items: center; gap: 8px; }
 .chart-time .gauge-source { flex: 1; min-width: 0; text-align: center; margin: 0; font-size: .625rem; }
 @media (max-width: 600px) { .result-disclosures { grid-template-columns: minmax(0, 1fr); } }
-@media (min-width: 1450px) { .app-shell { width: min(1280px, calc(100% - 120px)); } }
 @media (max-width: 1100px) {
-  .app-shell { width: calc(100% - 48px); }
   .configuration-workspace { grid-template-columns: minmax(0, 1fr) 13.75rem minmax(0, 1fr); gap: 24px; }
   .go-button { width: 11.875rem; height: 11.875rem; }
   .parameter { grid-template-columns: minmax(0, 1fr) minmax(65px, 5rem); }
@@ -262,7 +261,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .parameters-panel { grid-area: parameters; }
   .launch-area { grid-area: go; padding: 0; }
   .endpoint-stack.two-endpoints { grid-template-columns: minmax(0, 1fr); }
-  .go-button { width: 10.625rem; height: 10.625rem; }
+  .go-button { width: clamp(10.625rem, min(36vw, 24svh), 16.25rem); height: clamp(10.625rem, min(36vw, 24svh), 16.25rem); }
   .go-button span { font-size: 3rem; }
   .monitors.comparison { grid-template-columns: minmax(0, 1fr); }
   .monitors.comparison .output-grid.multiple { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -271,7 +270,6 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .phase-nav > span:not(:last-child):after { width: 24px; left: calc(100% + 15px); }
 }
 @media (max-width: 600px) {
-  .app-shell { width: calc(100% - 32px); }
   .site-header { min-height: 80px; gap: 12px; padding: 16px 0; }
   .brand { font-size: 1rem; gap: 8px; }
   .brand-icon { width: 32px; height: 36px; }
@@ -293,7 +291,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .parameters-panel .panel-title { margin-bottom: 18px; }
   .parameter-grid { gap: 20px; }
   .parameter { grid-template-columns: minmax(0, 1fr) 6rem; }
-  .go-button { width: 10.625rem; height: 10.625rem; }
+  .go-button { width: clamp(10.625rem, min(36vw, 24svh), 16.25rem); height: clamp(10.625rem, min(36vw, 24svh), 16.25rem); }
   .launch-area { gap: 16px; }
   .endpoint-settings { margin-top: 26px; }
   .endpoint-disclosure > summary { padding: 15px; gap: 10px; }
@@ -324,70 +322,77 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .connection-guide { padding: 19px; }
 }
 @media (min-width: 1100px) and (min-height: 600px) {
-  .app-shell.viewport-shell { width: min(1600px, calc(100% - 48px)); height: 100svh; min-height: 37.5rem; display: flex; flex-direction: column; position: relative; }
-  .viewport-shell .site-header { min-height: 52px; padding: 8px 0; flex: none; line-height: 1.2; }
-  .viewport-shell .brand { font-size: 1rem; gap: 9px; }
-  .viewport-shell .brand-icon { width: 32px; height: 32px; border-radius: 9px; }
+  .app-shell.viewport-shell {
+    --body-size: clamp(.8125rem, min(.95vw, 1.6svh), 1.25rem);
+    --label-size: clamp(.875rem, min(1vw, 1.7svh), 1.375rem);
+    --small-size: clamp(.625rem, min(.7vw, 1.25svh), .9375rem);
+    --header-height: clamp(52px, 7.5svh, 88px);
+    --gauge-size: clamp(176px, min(18vw, 24svh), 340px);
+    width: calc(100% - 2 * var(--page-gutter)); height: 100svh; min-height: 37.5rem; display: flex; flex-direction: column; position: relative; }
+  .viewport-shell .site-header { min-height: var(--header-height); padding: clamp(8px, 1svh, 16px) 0; flex: none; line-height: 1.2; }
+  .viewport-shell .brand { font-size: clamp(1rem, min(1.1vw, 1.8svh), 1.375rem); gap: 9px; }
+  .viewport-shell .brand-icon { width: clamp(32px, 3svh, 44px); height: clamp(32px, 3svh, 44px); border-radius: 9px; }
   .viewport-shell .brand-icon svg { width: 21px; height: 21px; }
   .viewport-shell .theme-switch { padding: 2px; }
   .viewport-shell .theme-switch button { padding: 6px 8px; }
-  .viewport-shell .phase-nav { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); margin: 0; gap: 28px; font-size: .75rem; white-space: nowrap; }
+  .viewport-shell .phase-nav { position: absolute; top: calc((var(--header-height) - 22px) / 2); left: 50%; transform: translateX(-50%); margin: 0; gap: clamp(28px, 2vw, 56px); font-size: clamp(.75rem, min(.8vw, 1.3svh), 1rem); white-space: nowrap; }
   .viewport-shell .phase-nav > span { gap: 6px; }
   .viewport-shell .phase-nav > span:not(:last-child):after { width: 12px; left: calc(100% + 8px); }
   .viewport-shell .main-content { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 8px; }
   .viewport-shell .page-heading { flex: none; margin-bottom: 6px; }
-  .viewport-shell h1 { font-size: 1.25rem; line-height: 1.2; letter-spacing: -.4px; }
-  .viewport-shell .stop-button, .viewport-shell .primary-button { padding: 6px 12px; font-size: .8125rem; line-height: 1.2; }
-  .viewport-shell .run-config-strip { flex: none; padding: 6px 0; gap: 22px; margin-bottom: 8px; font-size: .75rem; line-height: 1.2; }
+  .viewport-shell h1 { font-size: clamp(1.25rem, min(1.45vw, 2.2svh), 2rem); line-height: 1.2; letter-spacing: -.4px; }
+  .viewport-shell .stop-button, .viewport-shell .primary-button { padding: clamp(6px, .8svh, 12px) clamp(12px, 1vw, 24px); font-size: var(--body-size); line-height: 1.2; }
+  .viewport-shell .run-config-strip { flex: none; padding: 6px 0; gap: 22px; margin-bottom: 8px; font-size: clamp(.75rem, min(.8vw, 1.3svh), 1rem); line-height: 1.2; }
   .benchmark-dashboard { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); gap: 16px; }
-  .benchmark-dashboard .monitor { display: flex; flex-direction: column; padding: 12px; min-height: 0; gap: 8px; }
+  .benchmark-dashboard .monitor { display: flex; flex-direction: column; padding: clamp(12px, 1.8svh, 24px); min-height: 0; gap: clamp(8px, 1svh, 16px); }
   .benchmark-dashboard .monitor-heading { flex: none; min-height: 32px; }
-  .benchmark-dashboard .monitor-heading h2 { font-size: .875rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .benchmark-dashboard .monitor-heading h2 { font-size: var(--label-size); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .benchmark-dashboard .monitor-heading p { margin-top: 3px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .benchmark-dashboard .monitor-overview { display: grid; grid-template-columns: clamp(196px, 15vw, 220px) minmax(0, 1fr); gap: 12px; align-items: center; flex: none; }
+  .benchmark-dashboard .monitor-overview { display: grid; grid-template-columns: calc(var(--gauge-size) + 20px) minmax(0, 1fr); gap: clamp(12px, 1.2vw, 28px); align-items: center; flex: none; }
   .benchmark-dashboard .monitor-speed, .benchmark-dashboard .monitor-telemetry { min-width: 0; }
-  .benchmark-dashboard .speed-gauge { width: clamp(176px, 12vw, 196px); margin: 0 auto; }
+  .benchmark-dashboard .speed-gauge { width: var(--gauge-size); margin: 0 auto; }
   .benchmark-dashboard .gauge-number { top: 29%; }
-  .benchmark-dashboard .gauge-caption { font-size: .625rem; margin-bottom: 4px; }
-  .benchmark-dashboard .gauge-number strong { font-size: 2.25rem; letter-spacing: -1px; }
-  .benchmark-dashboard .gauge-unit { font-size: .625rem; margin-top: 4px; }
-  .benchmark-dashboard .gauge-min, .benchmark-dashboard .gauge-max { font-size: .5625rem; bottom: 8%; }
-  .benchmark-dashboard .gauge-source { font-size: .625rem; line-height: 1.2; margin: 0; }
-  .benchmark-dashboard .metric-grid { padding: 5px 0; }
-  .benchmark-dashboard .metric-card { padding: 0 10px; }
-  .benchmark-dashboard .metric-label { font-size: .6875rem; line-height: 1.2; }
-  .benchmark-dashboard .metric-number { font-size: 1.25rem; line-height: 1.2; margin-top: 3px; white-space: nowrap; }
-  .benchmark-dashboard .source { display: block; font-size: .625rem; line-height: 1.2; margin-top: 2px; }
+  .benchmark-dashboard .gauge-caption { font-size: var(--small-size); margin-bottom: 4px; }
+  .benchmark-dashboard .gauge-number strong { font-size: min(clamp(2.25rem, min(3.4vw, 4.8svh), 3.5rem), calc(var(--gauge-size) * 1.8 / var(--gauge-characters))); letter-spacing: -1px; }
+  .benchmark-dashboard .gauge-unit { font-size: var(--small-size); margin-top: 4px; }
+  .benchmark-dashboard .gauge-min, .benchmark-dashboard .gauge-max { font-size: clamp(.5625rem, min(.6vw, 1svh), .8125rem); bottom: 8%; }
+  .benchmark-dashboard .gauge-source { font-size: var(--small-size); line-height: 1.2; margin: 0; }
+  .benchmark-dashboard .metric-grid { padding: clamp(5px, .7svh, 10px) 0; }
+  .benchmark-dashboard .metric-card { padding: 0 clamp(10px, .9vw, 18px); }
+  .benchmark-dashboard .metric-label { font-size: clamp(.6875rem, min(.85vw, 1.45svh), 1.125rem); line-height: 1.2; }
+  .benchmark-dashboard .metric-number { font-size: clamp(1.25rem, min(2vw, 3svh), 2.5rem); line-height: 1.2; margin-top: 3px; white-space: nowrap; }
+  .benchmark-dashboard .source { display: block; font-size: var(--small-size); line-height: 1.2; margin-top: 2px; }
   .benchmark-dashboard .trend { padding: 4px 0 0; }
-  .benchmark-dashboard .trend-label { margin-bottom: 2px; font-size: .625rem; line-height: 1.2; }
-  .benchmark-dashboard .trend > svg { height: clamp(22px, calc(8svh - 30px), 60px); display: block; }
-  .benchmark-dashboard .chart-time { margin-top: 1px; font-size: .5625rem; line-height: 1.2; }
+  .benchmark-dashboard .trend-label { margin-bottom: 2px; font-size: var(--small-size); line-height: 1.2; }
+  .benchmark-dashboard .trend > svg { height: clamp(22px, calc(10svh - 38px), 120px); display: block; }
+  .benchmark-dashboard .chart-time { margin-top: 1px; font-size: clamp(.5625rem, min(.7vw, 1.1svh), .8125rem); line-height: 1.2; }
   .benchmark-dashboard .output-grid, .benchmark-dashboard.comparison .output-grid { flex: 1; min-height: 0; grid-template-columns: repeat(var(--output-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--output-rows), minmax(0, 1fr)); gap: 8px; }
   .benchmark-dashboard .output-window { display: flex; flex-direction: column; min-height: 0; }
   .benchmark-dashboard .output-window header { flex: none; padding: 6px 9px; }
-  .benchmark-dashboard .output-window pre { flex: 1; min-height: 0; height: auto; padding: 9px; font-size: .8125rem; line-height: 1.6; }
+  .benchmark-dashboard .output-window pre { flex: 1; min-height: 0; height: auto; padding: clamp(9px, 1vw, 20px); font-size: var(--body-size); line-height: 1.6; }
   .benchmark-dashboard .output-window pre:focus-visible { outline-offset: -2px; }
   .benchmark-dashboard .output-window footer { flex: none; padding: 5px 8px; gap: 4px; }
   .benchmark-dashboard .request-error { max-height: 40%; overflow: auto; flex: none; padding: 6px 9px; }
   .benchmark-dashboard .output-grid[data-dense] { gap: 6px; }
-  .benchmark-dashboard .output-grid[data-dense] .output-window header { padding: 2px 5px; gap: 4px; font-size: .625rem; line-height: 1.2; }
+  .benchmark-dashboard .output-grid[data-dense] .output-window header { padding: clamp(2px, .35svh, 5px) 5px; gap: 4px; font-size: var(--small-size); line-height: 1.2; }
   .benchmark-dashboard .output-grid[data-dense] .output-window header svg { width: 11px; height: 11px; }
   .benchmark-dashboard .output-grid[data-dense] .output-window header > span { gap: 3px; }
-  .benchmark-dashboard .output-grid[data-dense] .request-status { font-size: .5625rem; }
-  .benchmark-dashboard .output-grid[data-dense] .output-window pre { padding: 2px 5px; font-size: .75rem; line-height: 1.3; }
-  .benchmark-dashboard .output-grid[data-dense] .output-window footer { display: grid; grid-template-columns: 1.25fr 1fr .85fr; padding: 2px 5px; gap: 3px; font-size: .5625rem; line-height: 1.2; }
+  .benchmark-dashboard .output-grid[data-dense] .request-status { font-size: clamp(.5625rem, min(.7vw, 1.1svh), .8125rem); }
+  .benchmark-dashboard .output-grid[data-dense] .output-window pre { padding: 2px 5px; font-size: clamp(.75rem, min(.9vw, 1.5svh), 1.125rem); line-height: 1.3; }
+  .benchmark-dashboard .output-grid[data-dense] .output-window footer { display: grid; grid-template-columns: 1.25fr 1fr .85fr; padding: 2px 5px; gap: 3px; font-size: clamp(.5625rem, min(.7vw, 1.1svh), .8125rem); line-height: 1.2; }
   .benchmark-dashboard .output-grid[data-dense] .output-window footer span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .viewport-shell .site-footer { flex: none; margin-top: 6px; padding: 6px 0; line-height: 1.2; }
-  .viewport-shell .connection-guide { position: fixed; top: 64px; right: 24px; z-index: 5; width: min(680px, calc(100vw - 48px)); max-height: calc(100svh - 88px); overflow: auto; margin: 0; }
+  .viewport-shell .connection-guide { position: fixed; top: 64px; right: var(--page-gutter); z-index: 5; width: min(680px, calc(100vw - 48px)); max-height: calc(100svh - 88px); overflow: auto; margin: 0; }
   .viewport-shell .connection-guide .guide-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .app-shell.configuration-shell { max-width: 1280px; }
+  .app-shell.configuration-shell { max-width: none; }
   .configuration-shell .configuration-heading { margin-bottom: 12px; }
-  .configuration-shell .configuration-heading h1 { font-size: 1.75rem; font-weight: 500; }
+  .configuration-shell .configuration-heading h1 { font-size: clamp(1.75rem, min(2vw, 3svh), 2.5rem); font-weight: 500; }
   .configuration-shell .configuration-workspace { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
   .configuration-shell .preview-panel { height: auto; min-height: 0; }
-  .configuration-shell .parameters-panel { align-self: center; }
+  .configuration-shell .parameters-panel { align-self: stretch; display: flex; flex-direction: column; }
   .configuration-shell .parameters-panel .panel-title { margin-bottom: 18px; }
-  .configuration-shell .parameter-grid { gap: 14px; }
+  .configuration-shell .parameter-grid { flex: 1; grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .configuration-shell .parameter { align-content: center; grid-template-columns: minmax(0, 1fr) clamp(96px, 9vw, 180px); }
   .configuration-shell .parameter .range { margin-top: 10px; }
   .configuration-shell .parameter-options { margin-top: 8px; padding-top: 8px; position: relative; }
   .configuration-shell .launch-area { align-self: center; }
@@ -397,7 +402,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .configuration-shell .endpoint-disclosure > summary { padding: 12px 16px; }
   .configuration-shell .endpoint-editor { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 6; width: min(520px, 100%); max-height: calc(100svh - 180px); overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 40px #00000028; }
   .configuration-shell .parameter-options .secondary-parameters { position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 5; padding: 16px; margin: 0; max-height: calc(100svh - 160px); overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 40px #00000028; }
-  .results-shell .results-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; margin-bottom: 0; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .results-shell .results-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; margin-bottom: 0; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
   .results-shell .results-panel .panel-title { margin-bottom: 10px; }
   .results-shell .summary-table th { padding: 6px 12px; line-height: 1.3; }
   .results-shell .summary-table td { padding: 6px 12px; line-height: 1.3; }
@@ -406,5 +411,35 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .results-shell .result-disclosures { margin-top: 10px; padding-top: 8px; }
   .results-shell .result-note { margin-top: 10px; font-size: .6875rem; line-height: 1.5; }
   .results-shell .output-details .benchmark-dashboard { height: max(32rem, calc(100svh - 160px)); margin-top: 14px; }
+  .viewport-shell .help-button { font-size: var(--label-size); }
+  .viewport-shell .site-footer { font-size: clamp(.6875rem, min(.75vw, 1.2svh), .9375rem); }
+  .viewport-shell .endpoint-marker { width: clamp(25px, 2.4svh, 34px); height: clamp(25px, 2.4svh, 34px); font-size: var(--small-size); }
+  .benchmark-dashboard .monitor-count, .benchmark-dashboard .monitor-heading p { font-size: var(--small-size); }
+  .benchmark-dashboard .metric-number > span { font-size: var(--small-size); }
+  .benchmark-dashboard .output-window header { font-size: var(--small-size); }
+  .benchmark-dashboard .output-window footer { font-size: var(--small-size); }
+  .benchmark-dashboard .request-status { font-size: var(--small-size); }
+  .benchmark-dashboard .output-window:last-child { grid-column: span var(--last-span); }
+  .configuration-shell .configuration-workspace { --go-size: clamp(220px, min(24vw, 36svh), 520px); grid-template-columns: minmax(0, 1fr) calc(var(--go-size) + 64px) minmax(0, 1fr); column-gap: clamp(24px, 2.5vw, 72px); }
+  .configuration-shell .go-button { width: var(--go-size); height: var(--go-size); }
+  .configuration-shell .go-button > span { font-size: clamp(3.5rem, min(5vw, 8svh), 6rem); }
+  .configuration-shell .go-button small, .configuration-shell .launch-summary { font-size: var(--label-size); }
+  .configuration-shell .panel-title h2, .configuration-shell .parameter-heading { font-size: var(--label-size); }
+  .configuration-shell .parameter-unit, .configuration-shell .preview-token-count, .configuration-shell .parameter-options > summary { font-size: var(--small-size); }
+  .configuration-shell .parameter-value input { font-size: clamp(1.5rem, min(2.2vw, 4svh), 2.75rem) !important; }
+  .configuration-shell .prompt-preview { font-size: clamp(.8125rem, min(.9vw, 1.8svh), 1.125rem); }
+  .configuration-shell .preview-footer, .configuration-shell .range-bounds { font-size: var(--small-size); }
+  .configuration-shell .endpoint-summary strong { font-size: var(--label-size); }
+  .configuration-shell .endpoint-summary > span, .configuration-shell .endpoint-edit-label { font-size: var(--small-size); }
+  .results-shell .results-panel > :not(.summary-table) { flex: none; }
+  .results-shell .summary-table { flex: 1; min-height: 0; }
+  .results-shell .summary-table table { height: 100%; font-size: var(--body-size); }
+  .results-shell .summary-table th { font-size: var(--small-size); }
+  .results-shell .summary-table .comparison-cell { font-size: var(--body-size); }
+  .results-shell .results-panel .panel-title h2 { font-size: var(--label-size); }
+  .results-shell .stat-ranges > div, .results-shell .result-note { font-size: var(--small-size); }
+  .results-shell .result-disclosures summary { font-size: var(--body-size); }
+  .results-shell .results-panel:has(.result-disclosures > details[open]) .summary-table { flex: none; }
+  .results-shell .results-panel:has(.result-disclosures > details[open]) .summary-table table { height: auto; }
 }
 @media (prefers-reduced-motion: reduce) { *, *:before, *:after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

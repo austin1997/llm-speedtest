@@ -127,7 +127,8 @@ function Slider({ label, value, min, max, unit, onChange, log = false, icon }: {
 function SpeedGauge({ value, complete = false, accent = 'A' }: { value: number | null; complete?: boolean; accent?: 'A' | 'B' }) {
   const max = Math.max(100, Math.ceil((value ?? 0) / 100) * 100);
   const progress = Math.min(1, (value ?? 0) / max);
-  return <div className={`speed-gauge gauge-${accent}`}><svg viewBox="0 -16 320 226" aria-hidden="true"><path className="gauge-track" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" /><path className="gauge-fill" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" strokeDasharray={`${progress * 100} 100`} />{Array.from({ length: 25 }, (_, i) => { const angle = (160 + i * 220 / 24) * Math.PI / 180; return <line key={i} className="gauge-tick" x1={160 + Math.cos(angle) * 113} y1={126 + Math.sin(angle) * 113} x2={160 + Math.cos(angle) * (i % 6 === 0 ? 103 : 108)} y2={126 + Math.sin(angle) * (i % 6 === 0 ? 103 : 108)} />; })}</svg><div className="gauge-number"><span className="gauge-caption">{complete ? '整轮吞吐' : '实时吞吐'}</span><strong>{n(value, 1)}</strong><span className="gauge-unit">tokens / sec</span></div><span className="gauge-min">0</span><span className="gauge-max">{max}</span></div>;
+  const displayValue = n(value, 1);
+  return <div className={`speed-gauge gauge-${accent}`} style={{ '--gauge-characters': displayValue.length } as React.CSSProperties}><svg viewBox="0 -16 320 226" aria-hidden="true"><path className="gauge-track" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" /><path className="gauge-fill" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" strokeDasharray={`${progress * 100} 100`} />{Array.from({ length: 25 }, (_, i) => { const angle = (160 + i * 220 / 24) * Math.PI / 180; return <line key={i} className="gauge-tick" x1={160 + Math.cos(angle) * 113} y1={126 + Math.sin(angle) * 113} x2={160 + Math.cos(angle) * (i % 6 === 0 ? 103 : 108)} y2={126 + Math.sin(angle) * (i % 6 === 0 ? 103 : 108)} />; })}</svg><div className="gauge-number"><span className="gauge-caption">{complete ? '整轮吞吐' : '实时吞吐'}</span><strong title={`${displayValue} tokens / sec`}>{displayValue}</strong><span className="gauge-unit">tokens / sec</span></div><span className="gauge-min">0</span><span className="gauge-max">{max}</span></div>;
 }
 
 function TrendChart({ run, id, note }: { run: RunState; id: 'A' | 'B'; note: string }) {
@@ -167,7 +168,7 @@ function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointC
         <TrendChart run={run} id={endpoint.id} note={complete ? `${sourceLabels[metric.overall.source]} · 含首字等待的端到端吞吐` : '估算 · 思考与正文合并统计'} />
       </div>
     </div>
-    <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`端点 ${endpoint.id} 输出`} data-dense={run.config.concurrency > 9 || undefined} style={{ '--output-columns': columns, '--output-rows': Math.ceil(run.config.concurrency / columns) } as React.CSSProperties}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
+    <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`端点 ${endpoint.id} 输出`} data-dense={run.config.concurrency > 9 || undefined} style={{ '--output-columns': columns, '--output-rows': Math.ceil(run.config.concurrency / columns), '--last-span': columns - (run.config.concurrency - 1) % columns } as React.CSSProperties}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
   </section>;
 }
 
