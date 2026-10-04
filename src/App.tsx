@@ -5,6 +5,8 @@ import { endpointName } from './lib/endpoint';
 import { browserDecode, browserDecodeMetric, browserOutputDuration, duration, endpointMetrics, outputCount, serverDecode, serverPrefill, stats, ttft } from './lib/metrics';
 import { autoContext, estimateTokens, generatePrompt } from './lib/prompt';
 import { connectionError, discoverModels, endpointUrl, inspectModel } from './lib/protocol';
+import { counterLabel, detectTokenCounter } from './lib/token-counter';
+import { sourceLabels, tokenQuantityLabel } from './lib/provenance';
 import type { BenchmarkConfig, EndpointConfig, RequestResult, RunState, Source } from './lib/types';
 import TokenRace from './TokenRace';
 
@@ -37,13 +39,14 @@ function restore(): { config: BenchmarkConfig; endpoints: EndpointConfig[]; comp
         maxTokensField: saved.maxTokensField === 'max_completion_tokens' ? 'max_completion_tokens' as const : 'max_tokens' as const,
         thinkingFormat: saved.thinkingFormat === 'qwen' ? 'qwen' as const : 'reasoning_effort' as const,
         contextLength: Number.isInteger(saved.contextLength) && saved.contextLength >= 1024 ? saved.contextLength : null, apiKey: '',
+        useTokenApi: saved.useTokenApi !== false,
+        tokenBatchSize: Number.isInteger(saved.tokenBatchSize) ? Math.max(8, Math.min(512, saved.tokenBatchSize)) : 32,
       };
     });
     return { config, endpoints, compare: stored.compare === true };
   } catch { return { config: { ...defaultConfig }, endpoints: defaultEndpoints.map(e => ({ ...e })), compare: false }; }
 }
 
-const sourceLabels: Record<Source, string> = { reported: '端点报告', measured: '浏览器测量', estimated: '估算' };
 const n = (value: number | null | undefined, digits = 1) => value === null || value === undefined || !Number.isFinite(value) ? '—' : value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits });
 const time = (value: number | null | undefined) => value == null ? '—' : value >= 1000 ? `${n(value / 1000, 2)} s` : `${n(value, 0)} ms`;
 
@@ -61,13 +64,31 @@ function NumberInput({ value, onValue, min, max, nullable = false, ...props }: O
   }} />;
 }
 
-function EndpointCard({ endpoint, onChange, config }: { endpoint: EndpointConfig; onChange: (patch: Partial<EndpointConfig>) => void; config: BenchmarkConfig }) {
+function EndpointCard({ endpoint, onChange: commit, config }: { endpoint: EndpointConfig; onChange: (patch: Partial<EndpointConfig>) => void; config: BenchmarkConfig }) {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [connected, setConnected] = useState(false);
+  const [checkingTokens, setCheckingTokens] = useState(false);
+  const tokenCheck = useRef<AbortController | null>(null);
+  function onChange(patch: Partial<EndpointConfig>) {
+    if (['baseUrl', 'model', 'protocol', 'apiKey', 'useTokenApi'].some(key => key in patch)) {
+      tokenCheck.current?.abort(); setCheckingTokens(false);
+    }
+    commit(patch);
+  }
   const revision = useRef(0);
   useEffect(() => { revision.current++; setModels([]); setMessage(''); setConnected(false); setLoading(false); }, [endpoint.baseUrl, endpoint.protocol, endpoint.apiKey, endpoint.model]);
+  useEffect(() => () => tokenCheck.current?.abort(), []);
+  async function checkTokens() {
+    tokenCheck.current?.abort(); const controller = new AbortController(); tokenCheck.current = controller;
+    setCheckingTokens(true);
+    try {
+      const tokenCounter = await detectTokenCounter(endpoint, controller.signal);
+      if (!controller.signal.aborted) onChange({ tokenCounter });
+    } catch (error) { if (!controller.signal.aborted) setMessage(connectionError(error)); }
+    finally { if (!controller.signal.aborted) setCheckingTokens(false); }
+  }
   async function connect() {
     const current = ++revision.current;
     setLoading(true); setMessage(''); setConnected(false);
@@ -107,6 +128,10 @@ function EndpointCard({ endpoint, onChange, config }: { endpoint: EndpointConfig
     <label>API Key <span className="optional">可选 · 仅存于当前页面</span><input aria-label={`端点 ${endpoint.id} API Key`} type="password" value={endpoint.apiKey} onChange={e => onChange({ apiKey: e.target.value })} placeholder="无需认证时留空" autoComplete="off" /></label>
     <details className="advanced"><summary><Settings2 size={15} />兼容与上下文设置<ChevronDown size={14} /></summary><div className="advanced-content">
       {endpoint.protocol === 'openai' ? <>
+        <label className="checkbox-label"><input aria-label={`端点 ${endpoint.id} 实时 token API`} type="checkbox" checked={endpoint.useTokenApi !== false} onChange={e => onChange({ useTokenApi: e.target.checked })} />使用 token API 校准</label>
+        <label>校准间隔 / token<NumberInput aria-label={`端点 ${endpoint.id} 校准间隔`} min={8} max={512} value={endpoint.tokenBatchSize ?? 32} disabled={endpoint.useTokenApi === false} onValue={value => onChange({ tokenBatchSize: Math.round(value ?? 32) })} /></label>
+        <div className="token-counter-setting"><span role="status">{checkingTokens ? '检测中…' : endpoint.useTokenApi === false ? '已关闭 · 字符估算' : endpoint.tokenCounter ? counterLabel(endpoint.tokenCounter) : endpoint.tokenCounter === null ? '未检测到可用接口 · 估算' : '开始前自动检测'}</span><button className="icon-button" aria-label={`检测端点 ${endpoint.id} token API`} title="重新检测 token API" disabled={checkingTokens || endpoint.useTokenApi === false} onClick={checkTokens}><Radio size={15} className={checkingTokens ? 'spin' : ''} /></button></div>
+        <p className="hint">按新增 token 批量查询；查询间用校准后的估算。额外计数请求会增加端点负载，可关闭以比较开销。</p>
         <label>输出上限字段<select value={endpoint.maxTokensField} onChange={e => onChange({ maxTokensField: e.target.value as EndpointConfig['maxTokensField'] })}><option value="max_tokens">max_tokens</option><option value="max_completion_tokens">max_completion_tokens</option></select></label>
         <label>思考控制格式<select value={endpoint.thinkingFormat} onChange={e => onChange({ thinkingFormat: e.target.value as EndpointConfig['thinkingFormat'] })}><option value="reasoning_effort">reasoning_effort</option><option value="qwen">Qwen 模板参数</option></select></label>
         <label className="checkbox-label"><input type="checkbox" checked={endpoint.includeUsage} onChange={e => onChange({ includeUsage: e.target.checked })} />请求流式 usage</label>
@@ -128,14 +153,14 @@ function Slider({ label, value, min, max, unit, onChange, log = false, icon }: {
   return <div className="parameter"><div className="parameter-heading"><span>{icon}{label}</span><span className="parameter-unit">{unit}</span></div><div className="parameter-value"><NumberInput aria-label={`${label}数值`} min={min} max={max} value={value} onValue={v => onChange(Math.round(v ?? min))} /></div><input className="range" aria-label={`${label}滑块`} type="range" min={start} max={end} step={log ? 0.125 : 1} value={position} style={{ '--range-fill': `${percent}%` } as React.CSSProperties} onChange={e => onChange(log ? Math.min(max, Math.round(min * 2 ** Number(e.target.value))) : Number(e.target.value))} /><div className="range-bounds"><span>{min.toLocaleString()}</span><span>{max.toLocaleString()}</span></div></div>;
 }
 
-function SpeedGauge({ value, complete = false, accent = 'A' }: { value: number | null; complete?: boolean; accent?: 'A' | 'B' }) {
+function SpeedGauge({ value, complete = false, accent = 'A', source = 'estimated' }: { value: number | null; complete?: boolean; accent?: 'A' | 'B'; source?: Source }) {
   const max = Math.max(100, Math.ceil((value ?? 0) / 100) * 100);
   const progress = Math.min(1, (value ?? 0) / max);
   const displayValue = n(value, 1);
-  return <div className={`speed-gauge gauge-${accent}`} style={{ '--gauge-characters': displayValue.length } as React.CSSProperties}><svg viewBox="0 -16 320 226" aria-hidden="true"><path className="gauge-track" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" /><path className="gauge-fill" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" strokeDasharray={`${progress * 100} 100`} />{Array.from({ length: 25 }, (_, i) => { const angle = (160 + i * 220 / 24) * Math.PI / 180; return <line key={i} className="gauge-tick" x1={160 + Math.cos(angle) * 113} y1={126 + Math.sin(angle) * 113} x2={160 + Math.cos(angle) * (i % 6 === 0 ? 103 : 108)} y2={126 + Math.sin(angle) * (i % 6 === 0 ? 103 : 108)} />; })}</svg><div className="gauge-number"><span className="gauge-caption">{complete ? '整轮吞吐' : '实时吞吐'}</span><strong title={`${displayValue} tokens / sec`}>{displayValue}</strong><span className="gauge-unit">tokens / sec</span></div><span className="gauge-min">0</span><span className="gauge-max">{max}</span></div>;
+  return <div className={`speed-gauge gauge-${accent}`} data-source={source} style={{ '--gauge-characters': displayValue.length } as React.CSSProperties}><svg viewBox="0 -16 320 226" aria-hidden="true"><path className="gauge-track" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" /><path className="gauge-fill" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" strokeDasharray={`${progress * 100} 100`} />{Array.from({ length: 25 }, (_, i) => { const angle = (160 + i * 220 / 24) * Math.PI / 180; return <line key={i} className="gauge-tick" x1={160 + Math.cos(angle) * 113} y1={126 + Math.sin(angle) * 113} x2={160 + Math.cos(angle) * (i % 6 === 0 ? 103 : 108)} y2={126 + Math.sin(angle) * (i % 6 === 0 ? 103 : 108)} />; })}</svg><div className="gauge-number"><span className="gauge-caption" title={sourceLabels[source]}>{complete ? '整轮吞吐' : '实时吞吐'}</span><strong title={`${displayValue} tokens / sec`}>{displayValue}</strong><span className="gauge-unit">tokens / sec</span></div><span className="gauge-min">0</span><span className="gauge-max">{max}</span></div>;
 }
 
-function TrendChart({ run, endpoint, note }: { run: RunState; endpoint: EndpointConfig; note: string }) {
+function TrendChart({ run, endpoint, note, source }: { run: RunState; endpoint: EndpointConfig; note: string; source: Source }) {
   const id = endpoint.id;
   const data = run.history;
   const max = Math.max(10, ...data.map(point => point[id]));
@@ -143,22 +168,24 @@ function TrendChart({ run, endpoint, note }: { run: RunState; endpoint: Endpoint
   // At most 300 chart points, regardless of the length of a run.
   const step = Math.max(1, Math.ceil(data.length / 300));
   const points = data.filter((_, index) => index % step === 0 || index === data.length - 1).map(point => `${point.at / end * 600},${90 - point[id] / max * 74}`).join(' ');
-  return <div className={`trend trend-${id}`}><div className="trend-label"><span><Activity size={14} />吞吐趋势 <span className="muted">· 估算</span></span><span>{n(max, 0)} tok/s</span></div><svg viewBox="0 0 600 100" preserveAspectRatio="none" role="img" aria-label={`${endpointName(endpoint, `端点 ${id}`)} 吞吐趋势`}><line className="chart-grid" x1="0" y1="16" x2="600" y2="16" /><line className="chart-grid" x1="0" y1="53" x2="600" y2="53" /><line className="chart-grid" x1="0" y1="90" x2="600" y2="90" />{points && <><polygon className="chart-area" points={`0,100 ${points} 600,100`} /><polyline className="chart-line" points={points} /></>}</svg><div className="chart-time"><span>0 s</span><span className="gauge-source">{note}</span><span>{n(end, 1)} s</span></div></div>;
+  return <div className={`trend trend-${id}`}><div className="trend-label"><span><Activity size={14} />吞吐趋势 <span className="muted">· {source === 'calibrated' ? 'API 校准' : '估算'}</span></span><span>{n(max, 0)} tok/s</span></div><svg viewBox="0 0 600 100" preserveAspectRatio="none" role="img" aria-label={`${endpointName(endpoint, `端点 ${id}`)} 吞吐趋势`}><line className="chart-grid" x1="0" y1="16" x2="600" y2="16" /><line className="chart-grid" x1="0" y1="53" x2="600" y2="53" /><line className="chart-grid" x1="0" y1="90" x2="600" y2="90" />{points && <><polygon className="chart-area" points={`0,100 ${points} 600,100`} /><polyline className="chart-line" points={points} /></>}</svg><div className="chart-time"><span>0 s</span><span className="gauge-source" title={note}>{note}</span><span>{n(end, 1)} s</span></div></div>;
 }
 
 function MetricCard({ label, value, unit, source = 'measured', icon, title }: { label: string; value: string; unit?: string; source?: Source; icon?: React.ReactNode; title?: string }) {
   return <div className="metric-card" title={title}><div className="metric-label">{icon}{label}</div><div className="metric-number">{value}{unit && <span>{unit}</span>}</div><span className={`source source-${source}`}>{sourceLabels[source]}</span></div>;
 }
 
-const browserDecodeNote = '实际输出 token ÷ 首段文本到流完成的浏览器耗时；包含首段文本和尾部用量传输，只有一个文本片段时不可计算。缺少最终用量时回退到文本估算。';
-const overallSource = (source: Source) => `${source === 'reported' ? '实际' : '估算'} token · 浏览器计时`;
+const browserDecodeNote = '实际输出 token ÷ 首段文本到流完成的浏览器耗时；包含首段文本和尾部用量传输，只有一个文本片段时不可计算。缺少最终 usage 时优先使用 API 文本计数，否则估算；文本分词不包含未返回的隐藏 token。';
+const overallSource = (source: Source) => `${tokenQuantityLabel(source)} token · 浏览器计时`;
 
 const statusLabels = { pending: '等待开始', running: '接收中', success: '已完成', error: '失败', cancelled: '已停止' };
 function OutputWindow({ request, now }: { request: RequestResult; now: number }) {
   const outputRef = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
+  const count = outputCount(request);
+  const approximate = count.source === 'estimated' || count.source === 'calibrated';
   useEffect(() => { const node = outputRef.current; if (node && follow.current) node.scrollTop = node.scrollHeight; }, [request.text]);
-  return <article className={`output-window status-${request.status}`}><header><span><Terminal size={14} />请求 {String(request.index).padStart(2, '0')}</span><span className="request-status">{request.status === 'running' && <span className="live-dot" />}{statusLabels[request.status]}</span></header><pre ref={outputRef} tabIndex={0} aria-label={`请求 ${request.id} 输出`} onScroll={() => { const node = outputRef.current!; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40; }}>{request.text || <span className="output-placeholder">{request.status === 'running' ? '等待模型的第一个输出…' : request.status === 'success' ? '模型未返回可见文本。' : '尚未收到文本。'}</span>}</pre>{request.error && <div className="request-error" role="alert">{request.error}</div>}<footer><span title={`首字延迟 ${time(ttft(request))}`}>首字 {time(ttft(request))}</span><span title={`${n(outputCount(request).value, 0)} token · ${sourceLabels[outputCount(request).source]}`}>{n(outputCount(request).value, 0)} token{outputCount(request).source === 'estimated' ? ' ≈' : ''}</span><span title={`总耗时 ${time(duration(request, now))}`}>{time(duration(request, now))}</span></footer></article>;
+  return <article className={`output-window status-${request.status}`} data-token-source={count.source} data-counted-tokens={request.countedTokens} data-counted-chars={request.countedChars} data-text-chars={request.text.length}><header><span><Terminal size={14} />请求 {String(request.index).padStart(2, '0')}</span><span className="request-status">{request.status === 'running' && <span className="live-dot" />}{statusLabels[request.status]}</span></header><pre ref={outputRef} tabIndex={0} aria-label={`请求 ${request.id} 输出`} onScroll={() => { const node = outputRef.current!; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40; }}>{request.text || <span className="output-placeholder">{request.status === 'running' ? '等待模型的第一个输出…' : request.status === 'success' ? '模型未返回可见文本。' : '尚未收到文本。'}</span>}</pre>{request.error && <div className="request-error" role="alert">{request.error}</div>}<footer title={request.tokenCountError}><span title={`首字延迟 ${time(ttft(request))}`}>首字 {time(ttft(request))}</span><span title={`${n(count.value, 0)} token · ${sourceLabels[count.source]}`}>{n(count.value, 0)} token{approximate ? ' ≈' : count.source === 'counted' ? ' · 分词' : ''}</span><span title={`总耗时 ${time(duration(request, now))}`}>{time(duration(request, now))}</span></footer></article>;
 }
 
 function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointConfig }) {
@@ -166,14 +193,14 @@ function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointC
   const complete = run.phase === 'complete';
   const currentTTFT = stats(metric.requests.map(ttft)).mean;
   const columns = run.config.concurrency > 9 ? 4 : run.config.concurrency > 4 ? 3 : run.config.concurrency > 1 ? 2 : 1;
-  return <section className={`monitor panel endpoint-${endpoint.id}`}><div className="monitor-heading"><span className="endpoint-marker">{endpoint.id}</span><div><h2 title={endpointName(endpoint)}>{endpointName(endpoint)}</h2><p title={`${endpoint.model} · ${endpoint.baseUrl}`}>{endpoint.protocol === 'ollama' ? 'Ollama' : 'OpenAI 兼容'} · {new URL(endpoint.baseUrl).host}</p></div><span className="monitor-count">{complete ? `${metric.successful.length}/${metric.requests.length} 成功` : `${metric.active} 请求进行中`}</span></div>
+  return <section className={`monitor panel endpoint-${endpoint.id}`}><div className="monitor-heading"><span className="endpoint-marker">{endpoint.id}</span><div><h2 title={endpointName(endpoint)}>{endpointName(endpoint)}</h2><p title={`${endpoint.model} · ${endpoint.baseUrl}`}>{endpoint.protocol === 'ollama' ? 'Ollama' : 'OpenAI 兼容'} · {new URL(endpoint.baseUrl).host}</p></div><span className="monitor-count">{complete ? `${metric.successful.length}/${metric.requests.length} 成功` : metric.finalizingTokens && metric.active === 0 ? '文本计数校准中' : `${metric.active} 请求进行中`}</span></div>
     <div className="monitor-overview">
       <div className="monitor-speed">
-        <SpeedGauge value={complete ? metric.overall.value : metric.live} complete={complete} accent={endpoint.id} />
+        <SpeedGauge value={complete ? metric.overall.value : metric.live} complete={complete} accent={endpoint.id} source={complete ? metric.overall.source : metric.liveSource} />
       </div>
       <div className="monitor-telemetry">
-        <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : metric.liveDecode.mean)} unit="tok/s" source={complete ? metric.decode.source : 'estimated'} title={browserDecodeNote} /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
-        <TrendChart run={run} endpoint={endpoint} note={complete ? `${overallSource(metric.overall.source)} · 含首字等待` : '估算 · 思考与正文合并统计'} />
+        <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : metric.liveDecode.mean)} unit="tok/s" source={complete ? metric.decode.source : metric.liveDecode.source} title={browserDecodeNote} /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
+        <TrendChart run={run} endpoint={endpoint} source={endpoint.tokenCounter && !metric.tokenWarnings.length ? 'calibrated' : 'estimated'} note={metric.tokenWarnings.length ? '计数 API 回退估算 · 查看输出窗口提示' : complete ? `${overallSource(metric.overall.source)} · 含首字等待` : `${sourceLabels[metric.liveSource]} · 思考与正文合并`} />
       </div>
     </div>
     <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`${endpointName(endpoint, `端点 ${endpoint.id}`)} 输出`} data-dense={run.config.concurrency > 9 || undefined} style={{ '--output-columns': columns, '--output-rows': Math.ceil(run.config.concurrency / columns), '--last-span': columns - (run.config.concurrency - 1) % columns } as React.CSSProperties}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
@@ -196,7 +223,7 @@ function Results({ run }: { run: RunState }) {
   }
   const rows = [
     ['首字延迟', ...metrics.map(m => time(m.ttft.mean)), b ? difference(a.ttft.mean, b.ttft.mean, true) : ''],
-    ['浏览器 decode · 均值', ...metrics.map(m => `${n(m.decode.mean)} tok/s · ${m.decode.source === 'measured' ? '实测' : m.decode.mixed ? '含估算' : '估算'}`), b && a.decode.source === b.decode.source && !a.decode.mixed && !b.decode.mixed ? difference(a.decode.mean, b.decode.mean) : '口径不同或数据不足'],
+    ['浏览器 decode · 均值', ...metrics.map(m => `${n(m.decode.mean)} tok/s · ${m.decode.source === 'measured' ? '实测' : m.decode.mixed ? '混合口径' : sourceLabels[m.decode.source]}`), b && a.decode.source === b.decode.source && !a.decode.mixed && !b.decode.mixed ? difference(a.decode.mean, b.decode.mean) : '口径不同或数据不足'],
     ['整轮吞吐', ...metrics.map(m => `${n(m.overall.value)} tok/s · ${overallSource(m.overall.source)}`), b && a.overall.source === b.overall.source ? difference(a.overall.value, b.overall.value) : '口径不同或数据不足'],
     ['平均总耗时', ...metrics.map(m => time(m.duration.mean)), b ? difference(a.duration.mean, b.duration.mean, true) : ''],
     ['服务端 decode · 均值', ...metrics.map(m => `${n(m.serverDecode.mean)} tok/s`), b && a.endpoint.protocol === 'ollama' && b.endpoint.protocol === 'ollama' ? difference(a.serverDecode.mean, b.serverDecode.mean) : '—'],
@@ -212,13 +239,14 @@ function Results({ run }: { run: RunState }) {
     return undefined;
   }
   return <section className="panel results-panel" aria-label="本轮结果"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll summary-table"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}><span className="result-endpoint-name" title={endpointName(m.endpoint, `端点 ${m.endpoint.id}`)}>{endpointName(m.endpoint, `端点 ${m.endpoint.id}`)}</span></th>)}{b && <th><span className="result-endpoint-name" title={`${bName} 相对 ${aName}`}>{bName} 相对 {aName}</span></th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td title={calculation(row[0], a)}>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id} title={calculation(row[0], m)}>{row[i + 1]}</td>)}{b && <td className="comparison-cell"><span className="comparison-value" title={row[row.length - 1]}>{row[row.length - 1]}</span></td>}</tr>)}</tbody></table></div>
-    <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id} aria-label={`${endpointName(m.endpoint, `端点 ${m.endpoint.id}`)} 指标范围`}><span className="endpoint-marker" title={endpointName(m.endpoint)}>{m.endpoint.id}</span><div className="range-values"><span>首字范围 {time(m.ttft.min)} – {time(m.ttft.max)}</span><span>decode 范围 {n(m.decode.min)} – {n(m.decode.max)} tok/s{m.decode.source === 'estimated' && ' ≈'}</span><span>成功率 {n(m.successful.length / m.requests.length * 100, 0)}%</span></div></div>)}</div>
+    <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id} aria-label={`${endpointName(m.endpoint, `端点 ${m.endpoint.id}`)} 指标范围`}><span className="endpoint-marker" title={endpointName(m.endpoint)}>{m.endpoint.id}</span><div className="range-values"><span>首字范围 {time(m.ttft.min)} – {time(m.ttft.max)}</span><span>decode 范围 {n(m.decode.min)} – {n(m.decode.max)} tok/s{(m.decode.source === 'estimated' || m.decode.source === 'calibrated') && ' ≈'}</span><span>成功率 {n(m.successful.length / m.requests.length * 100, 0)}%</span></div></div>)}</div>
     <div className="result-disclosures">
     <details className="request-details"><summary>查看逐请求用量与服务数据<ChevronDown size={16} /></summary><div className="table-scroll"><table><thead><tr><th>请求</th><th>状态</th><th>首字</th><th>输入 token</th><th>输出 token</th><th>缓存输入</th><th>推理 token</th><th>浏览器 decode</th><th>输出阶段耗时</th><th>服务端 decode</th><th>服务 decode 耗时</th><th>服务端 prefill</th><th>服务 prefill 耗时</th><th>服务总耗时</th><th>请求总耗时</th><th>结束原因</th></tr></thead><tbody>{run.requests.map(r => {
       const endpoint = run.endpoints.find(e => e.id === r.endpointId)!;
       const name = endpoint.alias?.trim() ? `${endpointName(endpoint)} · ${r.index}` : r.id;
       const decode = browserDecodeMetric(r);
-      return <tr key={r.id}><td><span className="result-endpoint-name" title={`${name} (${r.id})`}>{name}</span></td><td>{statusLabels[r.status]}</td><td>{time(ttft(r))}</td><td>{n(r.usage?.input ?? estimateTokens(run.prompt), 0)}{r.usage?.input === undefined && ' ≈'}</td><td>{n(outputCount(r).value, 0)}{outputCount(r).source === 'estimated' && ' ≈'}</td><td>{n(r.usage?.cachedInput, 0)}</td><td>{n(r.usage?.reasoning, 0)}</td><td title={browserDecodeNote}>{n(browserDecode(r))} tok/s{decode.source === 'estimated' && ' ≈'}</td><td>{time(browserOutputDuration(r))}</td><td title="eval_count / eval_duration × 10⁹">{n(serverDecode(r))} tok/s</td><td title={`eval_duration = ${n(r.timing?.decodeNs, 0)} ns`}>{time(r.timing?.decodeNs === undefined ? null : r.timing.decodeNs / 1e6)}</td><td title="(prompt_eval_count − prompt_eval_cached_count) / prompt_eval_duration × 10⁹">{n(serverPrefill(r))} tok/s</td><td title={`prompt_eval_duration = ${n(r.timing?.prefillNs, 0)} ns`}>{time(r.timing?.prefillNs === undefined ? null : r.timing.prefillNs / 1e6)}</td><td title={`total_duration = ${n(r.timing?.totalNs, 0)} ns`}>{time(r.timing?.totalNs === undefined ? null : r.timing.totalNs / 1e6)}</td><td>{time(duration(r, run.now))}</td><td>{r.finishReason ?? '—'}</td></tr>;
+      const count = outputCount(r);
+      return <tr key={r.id}><td><span className="result-endpoint-name" title={`${name} (${r.id})`}>{name}</span></td><td>{statusLabels[r.status]}</td><td>{time(ttft(r))}</td><td>{n(r.usage?.input ?? estimateTokens(run.prompt), 0)}{r.usage?.input === undefined && ' ≈'}</td><td title={sourceLabels[count.source]}>{n(count.value, 0)}{(count.source === 'estimated' || count.source === 'calibrated') && ' ≈'}</td><td>{n(r.usage?.cachedInput, 0)}</td><td>{n(r.usage?.reasoning, 0)}</td><td title={`${browserDecodeNote} 来源：${sourceLabels[decode.source]}`}>{n(browserDecode(r))} tok/s{(decode.source === 'estimated' || decode.source === 'calibrated') && ' ≈'}</td><td>{time(browserOutputDuration(r))}</td><td title="eval_count / eval_duration × 10⁹">{n(serverDecode(r))} tok/s</td><td title={`eval_duration = ${n(r.timing?.decodeNs, 0)} ns`}>{time(r.timing?.decodeNs === undefined ? null : r.timing.decodeNs / 1e6)}</td><td title="(prompt_eval_count − prompt_eval_cached_count) / prompt_eval_duration × 10⁹">{n(serverPrefill(r))} tok/s</td><td title={`prompt_eval_duration = ${n(r.timing?.prefillNs, 0)} ns`}>{time(r.timing?.prefillNs === undefined ? null : r.timing.prefillNs / 1e6)}</td><td title={`total_duration = ${n(r.timing?.totalNs, 0)} ns`}>{time(r.timing?.totalNs === undefined ? null : r.timing.totalNs / 1e6)}</td><td>{time(duration(r, run.now))}</td><td>{r.finishReason ?? '—'}</td></tr>;
     })}</tbody></table></div></details>
     <details className="output-details"><summary aria-label="查看输出详情">查看输出与性能曲线<ChevronDown size={16} /></summary><BenchmarkDashboard run={run} /></details>
     </div>
@@ -238,6 +266,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const preparation = useRef<AbortController | null>(null);
   const controller = useRef<ReturnType<typeof startBenchmark> | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prompt = useMemo(() => generatePrompt(config.inputTokens), [config.inputTokens]);
@@ -249,19 +279,26 @@ export default function App() {
     try { localStorage.setItem('llm-speedtest-theme', theme); } catch { /* Storage is optional. */ }
     return () => media.removeEventListener('change', apply);
   }, [theme]);
-  useEffect(() => { try { localStorage.setItem('llm-speedtest-config', JSON.stringify({ version: 1, config, endpoints: endpoints.map(({ apiKey: _key, modelContextLimit: _limit, ...endpoint }) => { let baseUrl = ''; try { endpointUrl({ ...endpoint, apiKey: '' }, 'chat'); baseUrl = endpoint.baseUrl; } catch { /* Invalid URLs may contain credentials. */ } return { ...endpoint, baseUrl }; }), compare })); } catch { /* Storage is optional. */ } }, [config, endpoints, compare]);
-  useEffect(() => () => controller.current?.cancel(), []);
+  useEffect(() => { try { localStorage.setItem('llm-speedtest-config', JSON.stringify({ version: 1, config, endpoints: endpoints.map(({ apiKey: _key, modelContextLimit: _limit, tokenCounter: _counter, ...endpoint }) => { let baseUrl = ''; try { endpointUrl({ ...endpoint, apiKey: '' }, 'chat'); baseUrl = endpoint.baseUrl; } catch { /* Invalid URLs may contain credentials. */ } return { ...endpoint, baseUrl }; }), compare })); } catch { /* Storage is optional. */ } }, [config, endpoints, compare]);
+  useEffect(() => () => { preparation.current?.abort(); controller.current?.cancel(); }, []);
   useEffect(() => {
     if (run?.phase !== 'complete') return;
     const timer = setTimeout(() => setResultsReady(true), 1000);
     return () => clearTimeout(timer);
   }, [run?.phase]);
   useEffect(() => { if (phase > 0) titleRef.current?.focus({ preventScroll: true }); }, [phase]);
-  const updateConfig = (patch: Partial<BenchmarkConfig>) => setConfig(c => ({ ...c, ...patch }));
-  const updateEndpoint = (id: EndpointConfig['id'], patch: Partial<EndpointConfig>) => setEndpoints(all => all.map(e => e.id === id ? { ...e, ...patch } : e));
-  function begin() {
+  const updateConfig = (patch: Partial<BenchmarkConfig>) => { preparation.current?.abort(); setConfig(c => ({ ...c, ...patch })); };
+  const updateEndpoint = (id: EndpointConfig['id'], patch: Partial<EndpointConfig>) => {
+    if (Object.keys(patch).some(key => key !== 'tokenCounter')) preparation.current?.abort();
+    const invalidate = ['baseUrl', 'model', 'protocol', 'apiKey', 'useTokenApi'].some(key => key in patch);
+    setEndpoints(all => all.map(e => e.id === id ? { ...e, ...patch, ...(invalidate ? { tokenCounter: undefined } : {}) } : e));
+  };
+  async function begin() {
+    if (preparing) { preparation.current?.abort(); return; }
     setError('');
     const active = endpoints.slice(0, compare ? 2 : 1).map(e => ({ ...e }));
+    const settings = { ...config }, input = prompt;
+    const preflight = new AbortController(); preparation.current = preflight;
     try {
       for (const endpoint of active) {
         endpointUrl(endpoint, 'chat');
@@ -272,9 +309,20 @@ export default function App() {
           if (endpoint.modelContextLimit && context > endpoint.modelContextLimit) throw new Error(`端点 ${endpoint.id} 的上下文超过模型报告的上限 ${endpoint.modelContextLimit.toLocaleString()}。`);
         }
       }
+      setPreparing(true);
+      const tested = await Promise.all(active.map(async endpoint => {
+        const tokenCounter = endpoint.protocol !== 'openai' || endpoint.useTokenApi === false ? null : endpoint.tokenCounter === undefined ? await detectTokenCounter(endpoint, preflight.signal) : endpoint.tokenCounter;
+        return { ...endpoint, tokenCounter };
+      }));
+      if (preflight.signal.aborted) return;
+      setEndpoints(all => all.map(endpoint => {
+        const testedEndpoint = tested.find(e => e.id === endpoint.id);
+        return testedEndpoint ? { ...endpoint, tokenCounter: testedEndpoint.tokenCounter } : endpoint;
+      }));
       setResultsReady(false); setRaceAnimating(false);
-      controller.current = startBenchmark({ ...config }, active, prompt, setRun);
-    } catch (err) { setError(connectionError(err)); }
+      controller.current = startBenchmark(settings, tested, input, setRun);
+    } catch (err) { if (!preflight.signal.aborted) setError(connectionError(err)); }
+    finally { if (preparation.current === preflight) { preparation.current = null; setPreparing(false); } }
   }
   async function copyPrompt() { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setError('无法访问剪贴板，请从预览中选择并复制文本。'); } }
   return <div className={`app-shell viewport-shell ${phase === 0 ? 'configuration-shell' : phase === 1 ? 'running-shell' : 'results-shell'} ${phase === 1 && run?.endpoints.length === 2 ? 'race-comparison' : ''}`}>
@@ -307,7 +355,7 @@ export default function App() {
             <div className="preview-footer"><span>实际发送的完整输入</span><span>{prompt.length.toLocaleString()} 字符</span></div>
           </section>
           <div className="launch-area">
-            <button className="go-button" aria-label="开始测试" onClick={begin}><span>GO</span><small>开始测试</small></button>
+            <button className="go-button" aria-label={preparing ? '取消 token API 检测' : '开始测试'} onClick={begin}>{preparing ? <LoaderCircle size={54} className="spin" /> : <span>GO</span>}<small>{preparing ? '检测中 · 点击取消' : '开始测试'}</small></button>
             <span className="launch-summary">{compare ? 2 * config.concurrency : config.concurrency} 个请求 · {compare ? 'A/B 对比' : '单端点'}</span>
             {error && <p className="error-text launch-error" role="alert">{error}</p>}
           </div>
@@ -329,7 +377,7 @@ export default function App() {
           </section>
         </div>
         <section className="endpoint-settings" aria-label="测试端点">
-          <div className="endpoint-settings-heading"><h2>测试端点</h2><button className={`compare-toggle ${compare ? 'enabled' : ''}`} aria-pressed={compare} onClick={() => setCompare(!compare)}>{compare ? <Check size={14} /> : <Plus size={14} />}A/B 对比</button></div>
+          <div className="endpoint-settings-heading"><h2>测试端点</h2><button className={`compare-toggle ${compare ? 'enabled' : ''}`} aria-pressed={compare} onClick={() => { preparation.current?.abort(); setCompare(!compare); }}>{compare ? <Check size={14} /> : <Plus size={14} />}A/B 对比</button></div>
           <div className={`endpoint-stack ${compare ? 'two-endpoints' : ''}`}>{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard key={endpoint.id} endpoint={endpoint} config={config} onChange={patch => updateEndpoint(endpoint.id, patch)} />)}</div>
         </section>
       </> : <>

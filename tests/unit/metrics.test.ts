@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { browserDecode, browserDecodeMetric, browserOutputDuration, endpointMetrics, estimatedBrowserDecode, liveRate, outputCount, raceProgress, serverDecode, serverPrefill, ttft } from '../../src/lib/metrics';
+import { browserDecode, browserDecodeMetric, browserOutputDuration, endpointMetrics, estimatedBrowserDecode, liveRate, outputCount, raceProgress, serverDecode, serverPrefill, streamTokenCount, ttft } from '../../src/lib/metrics';
 import { estimateTokens, generatePrompt } from '../../src/lib/prompt';
 import type { RequestResult, RunState } from '../../src/lib/types';
 import { config, endpoint } from './fixtures';
@@ -33,6 +33,15 @@ describe('measurement semantics', () => {
     expect(browserDecodeMetric(request({ firstAt: 500, lastTextAt: 500, endedAt: 501 }))).toEqual({ value: null, source: 'measured' });
     expect(browserDecodeMetric(request({ firstAt: 500, endedAt: 500 }))).toEqual({ value: null, source: 'measured' });
     expect(browserDecodeMetric(request({ firstAt: null }))).toEqual({ value: null, source: 'measured' });
+  });
+  it('uses a counted prefix and calibrated estimates between API queries, with final usage taking priority', () => {
+    const counted = request({ status: 'running', text: 'a'.repeat(128), estimatedTokens: 32, usage: undefined, tokenSource: 'counted', countedTokens: 64, countedChars: 128, countedEstimate: 32, tokenScale: 2 });
+    expect(streamTokenCount(counted)).toEqual({ value: 64, source: 'counted' });
+    const pending = { ...counted, text: counted.text + 'abcdefgh', estimatedTokens: 34 };
+    expect(streamTokenCount(pending)).toEqual({ value: 68, source: 'calibrated' });
+    expect(streamTokenCount({ ...pending, tokenSource: 'estimated' })).toEqual({ value: 68, source: 'estimated' });
+    expect(outputCount({ ...pending, usage: { output: 100 } })).toEqual({ value: 100, source: 'reported' });
+    expect(browserDecodeMetric({ ...counted, status: 'success', endedAt: 2000 })).toEqual({ value: 64 / 1.5, source: 'counted' });
   });
   it('preserves usage provenance and keeps service metrics independent', () => {
     expect(outputCount(request())).toEqual({ value: 15, source: 'reported' });

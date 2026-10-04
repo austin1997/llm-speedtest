@@ -115,4 +115,102 @@ describe('single-round execution', () => {
     expect((await run.finished).raceDistance.A).toBe(120);
     expect(beforeCorrection.raceDistance.A).toBe(105);
   });
+  it('does not block streaming on API counting and aborts auxiliary queries when final usage arrives', async () => {
+    vi.useFakeTimers();
+    let now = 0;
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    let countingSignal: AbortSignal | undefined;
+    const fetcher = vi.fn(async (url: any, init: any) => {
+      if (String(url).endsWith('/tokenize')) {
+        countingSignal = init.signal;
+        return await new Promise<Response>((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));
+      }
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }));
+    }) as unknown as typeof fetch;
+    const target = { ...endpoint, protocol: 'openai' as const, baseUrl: 'http://localhost:11434/v1', tokenBatchSize: 8, tokenCounter: { kind: 'vllm' as const, url: 'http://localhost:11434/tokenize', baseline: 0 } };
+    let latest!: RunState;
+    const run = startBenchmark(config, [target], 'x', state => { latest = state; }, { fetcher, clock: () => now });
+    const emit = (data: unknown) => stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
+    now = 100; emit({ choices: [{ delta: { content: 'abcd'.repeat(8) } }] });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(countingSignal).toBeDefined();
+    now = 200; emit({ choices: [{ delta: { content: 'more output' } }] });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(latest.requests[0].text).toContain('more output');
+    now = 300; emit({ choices: [], usage: { completion_tokens: 64 } });
+    stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); stream.close();
+    const result = await run.finished;
+    expect(countingSignal!.aborted).toBe(true);
+    expect(result.requests[0]).toMatchObject({ status: 'success', endedAt: 300, usage: { output: 64 } });
+    expect(result.now).toBe(300);
+  });
+  it('flushes a final short prefix without adding token API latency to inference duration', async () => {
+    vi.useFakeTimers();
+    let now = 0;
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const fetcher = vi.fn(async (url: any) => String(url).endsWith('/tokenize') ? (await new Promise(resolve => setTimeout(resolve, 200)), new Response('{"count":12}')) : new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }))) as unknown as typeof fetch;
+    const target = { ...endpoint, protocol: 'openai' as const, baseUrl: 'http://localhost:11434/v1', tokenBatchSize: 32, tokenCounter: { kind: 'vllm' as const, url: 'http://localhost:11434/tokenize', baseline: 0 } };
+    const run = startBenchmark(config, [target], 'x', () => {}, { fetcher, clock: () => now });
+    const emit = (text: string) => stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+    now = 100; emit('hel'); await vi.advanceTimersByTimeAsync(100);
+    now = 300; emit('lo'); await vi.advanceTimersByTimeAsync(100);
+    now = 500; stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); stream.close();
+    await vi.advanceTimersByTimeAsync(250);
+    const result = await run.finished;
+    expect(result.requests[0]).toMatchObject({ status: 'success', text: 'hello', endedAt: 500, countedTokens: 12, countedChars: 5, tokenCounting: 'done' });
+    expect(result.now).toBe(500);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('calibrates rolling samples at original chunk times rather than creating an API-response burst', async () => {
+    vi.useFakeTimers();
+    let now = 0;
+    let latest!: RunState;
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const fetcher = vi.fn(async (url: any, init: any) => {
+      if (String(url).endsWith('/tokenize')) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        return new Response(JSON.stringify({ count: JSON.parse(init.body).prompt.length }));
+      }
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }));
+    }) as unknown as typeof fetch;
+    const target = { ...endpoint, protocol: 'openai' as const, baseUrl: 'http://localhost:11434/v1', tokenBatchSize: 8, tokenCounter: { kind: 'vllm' as const, url: 'http://localhost:11434/tokenize', baseline: 0 } };
+    const run = startBenchmark(config, [target], 'x', state => { latest = state; }, { fetcher, clock: () => now });
+    const emit = () => stream.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrstuvwxyz012345"}}]}\n\n'));
+    now = 100; emit(); await vi.advanceTimersByTimeAsync(100);
+    now = 200; emit(); await vi.advanceTimersByTimeAsync(100);
+    now = 300; await vi.advanceTimersByTimeAsync(100);
+    expect(latest.requests[0].samples.map(sample => sample.at)).toEqual([100, 200]);
+    expect(latest.requests[0].samples.map(sample => sample.tokens)).toEqual([32, 32]);
+    now = 400; stream.enqueue(new TextEncoder().encode('data: {"choices":[],"usage":{"completion_tokens":64}}\n\ndata: [DONE]\n\n')); stream.close();
+    await run.finished;
+  });
+  it('keeps inference successful when counting fails and cancellation aborts both inference and counters', async () => {
+    vi.useFakeTimers();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const signals: AbortSignal[] = [];
+    const target = { ...endpoint, protocol: 'openai' as const, baseUrl: 'http://localhost:11434/v1', tokenBatchSize: 8, tokenCounter: { kind: 'vllm' as const, url: 'http://localhost:11434/tokenize', baseline: 0 } };
+    const fetcher = vi.fn(async (url: any, init: any) => {
+      signals.push(init.signal);
+      if (String(url).endsWith('/tokenize')) return new Response('{}', { status: 503 });
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; init.signal.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError'))); } }));
+    }) as unknown as typeof fetch;
+    const run = startBenchmark(config, [target], 'x', () => {}, { fetcher });
+    stream.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrstuvwxyz012345"}}]}\n\n'));
+    await vi.advanceTimersByTimeAsync(100);
+    stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); stream.close();
+    const result = await run.finished;
+    expect(result.requests[0]).toMatchObject({ status: 'success', tokenSource: 'estimated', tokenCounting: 'failed' });
+    expect(result.requests[0].tokenCountError).toContain('503');
+    const pendingFetcher = vi.fn(async (url: any, init: any) => {
+      signals.push(init.signal);
+      if (String(url).endsWith('/tokenize')) return await new Promise<Response>((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; init.signal.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError'))); } }));
+    }) as unknown as typeof fetch;
+    const cancelled = startBenchmark(config, [target], 'x', () => {}, { fetcher: pendingFetcher });
+    stream.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrstuvwxyz012345"}}]}\n\n'));
+    await vi.advanceTimersByTimeAsync(100);
+    cancelled.cancel();
+    expect((await cancelled.finished).requests[0].status).toBe('cancelled');
+    expect(signals.slice(-2).every(signal => signal.aborted)).toBe(true);
+  });
 });

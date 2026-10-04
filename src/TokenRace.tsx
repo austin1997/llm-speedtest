@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { Car } from 'lucide-react';
 import { endpointName } from './lib/endpoint';
 import { raceProgress } from './lib/metrics';
+import { sourceLabels } from './lib/provenance';
 import type { RunState } from './lib/types';
 
 const labels = { waiting: '等待输出', driving: '输出中', catchup: '校准后等待输出追平', budget: '达到预算（估算）', error: '有请求失败', cancelled: '已停止', finished: '达到预算（估算）', early: '提前结束' };
@@ -26,12 +27,12 @@ export default function TokenRace({ run, onAnimationChange }: { run: RunState; o
     badge?.addEventListener('animationstart', watch);
     return () => { current = false; badge?.removeEventListener('animationstart', watch); onAnimationChange(false); };
   }, [winnerId, run.startedAt, onAnimationChange]);
-  return <section className={`token-race ${run.endpoints.some(endpoint => endpoint.alias?.trim()) ? 'has-alias' : ''}`} aria-label="双端点输出竞速" title="赛道长度 = 每请求输出上限 × 并发数；车速与距离使用实时 token 估算，提前结束时停车。">
+  return <section className={`token-race ${run.endpoints.some(endpoint => endpoint.alias?.trim()) ? 'has-alias' : ''}`} aria-label="双端点输出竞速" title="赛道长度 = 每请求输出上限 × 并发数；使用当前文本计数，校准后不回退，提前结束时停车。">
     {run.endpoints.map(endpoint => {
       const progress = raceProgress(run, endpoint.id);
       const name = endpointName(endpoint, endpoint.id);
-      const output = `${progress.output.source === 'estimated' ? '≈ ' : ''}${number(progress.output.value!)} / ${number(progress.budget)}`;
-      const source = progress.output.source === 'reported' ? '端点报告' : '估算';
+      const output = `${progress.output.source === 'estimated' || progress.output.source === 'calibrated' ? '≈ ' : ''}${number(progress.output.value!)} / ${number(progress.budget)}`;
+      const source = sourceLabels[progress.output.source];
       return <div key={endpoint.id} className={`race-row race-${endpoint.id}`} data-state={progress.state} data-generated={progress.generated} data-distance={progress.distance} data-tokens={progress.output.value} data-source={progress.output.source} data-budget={progress.budget} data-speed={progress.speed} data-progress={progress.fraction} title={`${name} · ${endpoint.model} · ${labels[progress.state]} · 输出 ${output} tokens（${source}） · ${number(progress.speed)} tok/s`}>
         <span className="race-identity" title={name}>{name}</span>
         <div className="race-track" role="progressbar" aria-label={`${endpointName(endpoint, `端点 ${endpoint.id}`)} 输出进度（估算）`} aria-valuemin={0} aria-valuemax={progress.budget} aria-valuenow={progress.distance} aria-valuetext={`${labels[progress.state]}，行驶距离 ${number(progress.distance)} / ${number(progress.budget)} tokens，输出 ${output} tokens（${source}）`}>

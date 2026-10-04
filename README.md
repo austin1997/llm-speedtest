@@ -41,6 +41,18 @@ API Key 只保存在当前页面内存，刷新后清除；不会写入浏览器
 
 OpenAI 兼容设置可切换输出上限字段 `max_tokens` / `max_completion_tokens`，也可以关闭 `stream_options.include_usage`。不支持参数时会显示服务返回的错误，不会在本轮测速自动重试。
 
+### 实时 token API 校准
+
+OpenAI 兼容端点默认启用 token API 校准。在“兼容与上下文设置”中可关闭、手动检测，并调整校准间隔（8–512 token，默认 32）。GO 会在正式推理前检测计数接口，也可再次点击取消检测。修改地址、模型或 API Key 会清除检测结果；检测结果只留在页面内存，开关与间隔保存在本机。
+
+支持 vLLM 的 `POST /tokenize`（`prompt`、`add_special_tokens:false`）、llama.cpp 的 `POST /tokenize`（`content`、`add_special:false`），以及带 `/v1` 或自定义路径前缀的变体。还会检测 `POST /v1/responses/input_tokens`，并优先使用原文本分词接口。[vLLM 协议](https://github.com/vllm-project/vllm/blob/main/vllm/entrypoints/serve/tokenize/protocol.py)、[llama.cpp 文档](https://github.com/ggml-org/llama.cpp/tree/master/tools/server#post-tokenize-tokenize-a-given-text)
+
+按新增 token 数批量查询累计的可见输出，而不是把每个 chunk 独立分词后相加，这样可处理跨 chunk 的词边界。首次用字符估算判断间隔，之后利用计数结果校准估算比例；查询间的进度与速率仍含估算。计数增量按原始片段到达时间校准近期样本，不把 API 返回延迟造成的批量增量当成瞬时吞吐。每端点最多两个计数查询在途，相同前缀可复用结果。额外请求可能影响被测服务负载，关闭此选项可比较计数开销。
+
+Responses 的输入计数包含消息结构。使用相同 assistant 消息结构的空文本作为基线，按差值校准，标记为“API 校准（含估算）”，不宣称是实际生成 usage。原文本分词标记为“端点分词”；隐藏推理、格式与特殊 token 不一定能从可见文本恢复，最终仍优先采用流末尾 usage。[OpenAI 官方计数说明](https://developers.openai.com/api/docs/guides/token-counting)
+
+探测或计数失败时回退估算，推理继续执行。计数查询异步进行，不阻塞流式读取；只有缺少最终 usage 时才补齐末次完整文本计数，等待计数的时间不计入 LLM 请求耗时。“停止测试”同时取消推理、排队及在途计数请求。计数接口也须允许当前网站的 CORS 来源和认证请求头。
+
 ### 思考模式
 
 默认遵循服务配置。开启或关闭时：
@@ -95,7 +107,7 @@ OpenAI 兼容部署需要允许当前网站的 CORS 来源，并允许 `POST`、
 
 整轮吞吐的时间包括失败或取消请求占用的时间；它们的输出不进入成功总量。延迟和 decode 均值 / 最小值 / 最大值仅包含成功且具有有效指标的请求。缺失或零时间指标显示 `—`。
 
-实时浏览器 decode 使用首末文本片段之间的估算 token 增量，排除首片段。最终实测速率使用整段实际输出及首段文本至流完成的时间，包含首段文本与尾部用量传输；只有一个文本片段或零时长时显示 `—`，不推断每个片段的真实 token 数。不同模型的 tokenizer、流式缓冲及网络传输会影响浏览器速率与服务端速率之间的差异。
+无计数 API 时，实时浏览器 decode 使用首末文本片段之间的估算 token 增量，排除首片段；有计数 API 时使用已校准文本量与浏览器时间并显示来源。最终实测速率使用整段实际输出及首段文本至流完成的时间，包含首段文本与尾部用量传输；只有一个文本片段或零时长时显示 `—`，不推断每个片段的真实 token 数。不同模型的 tokenizer、流式缓冲及网络传输会影响浏览器速率与服务端速率之间的差异。
 
 整轮吞吐标明“实际/估算 token · 浏览器计时”，服务端 decode / prefill 使用端点报告的字段。A/B 只比较相同口径；混合实测与估算的浏览器均值不计算差异。悬停汇总数值可查看公式；逐请求详情提供实际用量、缓存输入、输出阶段耗时、服务 decode / prefill 耗时及总耗时，服务时间可悬停查看原始纳秒值。
 

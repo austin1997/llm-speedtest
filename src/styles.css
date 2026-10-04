@@ -233,6 +233,7 @@ td:first-child { color: var(--secondary); }
 code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; color: var(--accent); overflow-wrap: anywhere; }
 .spin { animation: spin 1.8s linear infinite; }
 .muted { color: var(--muted); }
+.token-counter-setting { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .75rem; margin-top: 12px; }
 .token-race { display: none; }
 @keyframes race-trail { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-8px); opacity: .1; } }
 @keyframes race-first {

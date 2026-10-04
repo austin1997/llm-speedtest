@@ -1,6 +1,6 @@
 export type Protocol = 'ollama' | 'openai';
 export type Thinking = 'default' | 'on' | 'off';
-export type Source = 'reported' | 'measured' | 'estimated';
+export type Source = 'reported' | 'measured' | 'estimated' | 'counted' | 'calibrated';
 export type Status = 'pending' | 'running' | 'success' | 'error' | 'cancelled';
 
 export interface EndpointConfig {
@@ -15,6 +15,15 @@ export interface EndpointConfig {
   thinkingFormat: 'reasoning_effort' | 'qwen';
   contextLength: number | null;
   modelContextLimit?: number;
+  useTokenApi?: boolean;
+  tokenBatchSize?: number;
+  tokenCounter?: TokenCounterCapability | null;
+}
+
+export interface TokenCounterCapability {
+  kind: 'vllm' | 'llama' | 'responses';
+  url: string;
+  baseline: number;
 }
 
 export interface BenchmarkConfig {
@@ -45,7 +54,15 @@ export interface RequestResult {
   endedAt: number | null;
   firstTokens: number;
   estimatedTokens: number;
-  samples: { at: number; tokens: number }[];
+  samples: { at: number; tokens: number; estimate?: number; chars?: number }[];
+  tokenSource?: 'counted' | 'calibrated' | 'estimated';
+  countedTokens?: number;
+  countedChars?: number;
+  countedAt?: number;
+  countedEstimate?: number;
+  tokenScale?: number;
+  tokenCounting?: 'active' | 'finalizing' | 'done' | 'failed';
+  tokenCountError?: string;
   usage?: Usage;
   timing?: ServerTiming;
   finishReason?: string;
