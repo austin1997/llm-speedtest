@@ -137,7 +137,7 @@ test('removes focus outlines on the heading and select without removing keyboard
 
 test('scrolls to the results after completion when viewing lower output windows', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.setViewportSize({ width: 800, height: 720 });
   await configure(page, 'A', 'http://127.0.0.1:4174/scroll');
   await page.getByLabel('并发请求数值').fill('8');
   await page.getByLabel('开始测试', { exact: true }).click();

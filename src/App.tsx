@@ -149,19 +149,26 @@ function OutputWindow({ request, now }: { request: RequestResult; now: number })
   const outputRef = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
   useEffect(() => { const node = outputRef.current; if (node && follow.current) node.scrollTop = node.scrollHeight; }, [request.text]);
-  return <article className={`output-window status-${request.status}`}><header><span><Terminal size={14} />请求 {String(request.index).padStart(2, '0')}</span><span className="request-status">{request.status === 'running' && <span className="live-dot" />}{statusLabels[request.status]}</span></header><pre ref={outputRef} onScroll={() => { const node = outputRef.current!; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40; }}>{request.text || <span className="output-placeholder">{request.status === 'running' ? '等待模型的第一个输出…' : request.status === 'success' ? '模型未返回可见文本。' : '尚未收到文本。'}</span>}</pre>{request.error && <div className="request-error" role="alert">{request.error}</div>}<footer><span>首字 {time(ttft(request))}</span><span>{n(outputCount(request).value, 0)} token{outputCount(request).source === 'estimated' ? ' ≈' : ''}</span><span>{time(duration(request, now))}</span></footer></article>;
+  return <article className={`output-window status-${request.status}`}><header><span><Terminal size={14} />请求 {String(request.index).padStart(2, '0')}</span><span className="request-status">{request.status === 'running' && <span className="live-dot" />}{statusLabels[request.status]}</span></header><pre ref={outputRef} tabIndex={0} aria-label={`请求 ${request.id} 输出`} onScroll={() => { const node = outputRef.current!; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40; }}>{request.text || <span className="output-placeholder">{request.status === 'running' ? '等待模型的第一个输出…' : request.status === 'success' ? '模型未返回可见文本。' : '尚未收到文本。'}</span>}</pre>{request.error && <div className="request-error" role="alert">{request.error}</div>}<footer><span title={`首字延迟 ${time(ttft(request))}`}>首字 {time(ttft(request))}</span><span title={`${n(outputCount(request).value, 0)} token · ${sourceLabels[outputCount(request).source]}`}>{n(outputCount(request).value, 0)} token{outputCount(request).source === 'estimated' ? ' ≈' : ''}</span><span title={`总耗时 ${time(duration(request, now))}`}>{time(duration(request, now))}</span></footer></article>;
 }
 
 function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointConfig }) {
   const metric = endpointMetrics(run, endpoint.id);
   const complete = run.phase === 'complete';
   const currentTTFT = stats(metric.requests.map(ttft)).mean;
-  return <section className={`monitor panel endpoint-${endpoint.id}`}><div className="monitor-heading"><span className="endpoint-marker">{endpoint.id}</span><div><h2>{endpoint.model}</h2><p>{endpoint.protocol === 'ollama' ? 'Ollama' : 'OpenAI 兼容'} · {new URL(endpoint.baseUrl).host}</p></div><span className="monitor-count">{complete ? `${metric.successful.length}/${metric.requests.length} 成功` : `${metric.active} 请求进行中`}</span></div>
-    <SpeedGauge value={complete ? metric.overall.value : metric.live} complete={complete} accent={endpoint.id} />
-    <div className="gauge-source">{complete ? `${sourceLabels[metric.overall.source]} · 含首字等待的端到端吞吐` : '估算 · 思考与正文合并统计'}</div>
-    <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : stats(metric.requests.map(browserDecode)).mean)} unit="tok/s" source="estimated" /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
-    <TrendChart run={run} id={endpoint.id} />
-    <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`端点 ${endpoint.id} 输出`}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
+  const columns = run.config.concurrency > 9 ? 4 : run.config.concurrency > 4 ? 3 : run.config.concurrency > 1 ? 2 : 1;
+  return <section className={`monitor panel endpoint-${endpoint.id}`}><div className="monitor-heading"><span className="endpoint-marker">{endpoint.id}</span><div><h2 title={endpoint.model}>{endpoint.model}</h2><p title={endpoint.baseUrl}>{endpoint.protocol === 'ollama' ? 'Ollama' : 'OpenAI 兼容'} · {new URL(endpoint.baseUrl).host}</p></div><span className="monitor-count">{complete ? `${metric.successful.length}/${metric.requests.length} 成功` : `${metric.active} 请求进行中`}</span></div>
+    <div className="monitor-overview">
+      <div className="monitor-speed">
+        <SpeedGauge value={complete ? metric.overall.value : metric.live} complete={complete} accent={endpoint.id} />
+        <div className="gauge-source">{complete ? `${sourceLabels[metric.overall.source]} · 含首字等待的端到端吞吐` : '估算 · 思考与正文合并统计'}</div>
+      </div>
+      <div className="monitor-telemetry">
+        <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : stats(metric.requests.map(browserDecode)).mean)} unit="tok/s" source="estimated" /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
+        <TrendChart run={run} id={endpoint.id} />
+      </div>
+    </div>
+    <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`端点 ${endpoint.id} 输出`} data-dense={run.config.concurrency > 9 || undefined} style={{ '--output-columns': columns, '--output-rows': Math.ceil(run.config.concurrency / columns) } as React.CSSProperties}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
   </section>;
 }
 
@@ -245,7 +252,7 @@ export default function App() {
     } catch (err) { setError(connectionError(err)); }
   }
   async function copyPrompt() { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setError('无法访问剪贴板，请从预览中选择并复制文本。'); } }
-  return <div className={`app-shell ${run ? 'run-shell' : 'configuration-shell'}`}>
+  return <div className={`app-shell ${run ? 'run-shell' : 'configuration-shell'} ${phase === 1 ? 'running-shell' : ''}`}>
     <header className="site-header">
       <a className="brand" href="/" aria-label="LLM Speedtest 首页"><span className="brand-icon"><Gauge size={25} strokeWidth={1.8} /></span><span>LLM <strong>SPEEDTEST</strong></span></a>
       <div className="header-tools">
@@ -262,9 +269,9 @@ export default function App() {
     <main className="main-content" key={run ? 'run' : 'config'}>
       <div className={`page-heading ${run ? '' : 'configuration-heading'}`}>
         <div>
-          {run && <p className="eyebrow">{phase === 1 ? 'BENCHMARK IN PROGRESS' : 'BENCHMARK COMPLETE'}</p>}
-          <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '性能，正在发生。' : '这一轮，表现如何？'}</h1>
-          {run && <p className="page-description">{phase === 1 ? '实时接收模型输出，记录每一个性能变化。' : '用相同的口径，了解部署的实际表现。'}</p>}
+          {phase === 2 && <p className="eyebrow">BENCHMARK COMPLETE</p>}
+          <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '这一轮，表现如何？'}</h1>
+          {phase === 2 && <p className="page-description">用相同的口径，了解部署的实际表现。</p>}
         </div>
         {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); controller.current = null; } }}>{phase === 1 ? <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? '停止测试' : '再次测试'}</button>}
       </div>
