@@ -5,6 +5,7 @@ export type Status = 'pending' | 'running' | 'success' | 'error' | 'cancelled';
 
 export interface EndpointConfig {
   id: 'A' | 'B';
+  alias?: string;
   protocol: Protocol;
   baseUrl: string;
   model: string;
