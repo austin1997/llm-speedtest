@@ -232,6 +232,8 @@ td:first-child { color: var(--secondary); }
 code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; color: var(--accent); overflow-wrap: anywhere; }
 .spin { animation: spin 1.8s linear infinite; }
 .muted { color: var(--muted); }
+.token-race { display: none; }
+@keyframes race-trail { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-8px); opacity: .1; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 50% { opacity: .35; } }
 @keyframes enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
@@ -441,5 +443,26 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .results-shell .result-disclosures summary { font-size: var(--body-size); }
   .results-shell .results-panel:has(.result-disclosures > details[open]) .summary-table { flex: none; }
   .results-shell .results-panel:has(.result-disclosures > details[open]) .summary-table table { height: auto; }
+  .race-comparison .main-content { padding-top: 2px; }
+  .race-comparison .page-heading { margin-bottom: 2px; }
+  .race-comparison .run-config-strip { padding-block: 5px; margin-bottom: 4px; }
+  .token-race { --race-height: clamp(44px, 5svh, 72px); --car-width: clamp(36px, 4svh, 56px); height: var(--race-height); flex: 1; min-width: 0; display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 clamp(8px, 1.5vw, 36px); }
+  .race-row { color: var(--accent); display: grid; grid-template-columns: clamp(18px, 1.6svh, 26px) minmax(0, 1fr) clamp(154px, 14vw, 260px); align-items: center; gap: 8px; min-width: 0; }
+  .race-B { color: var(--accent-b); }
+  .race-identity { font-size: var(--small-size); font-weight: 650; text-align: center; }
+  .race-track { min-width: 0; height: 100%; position: relative; border-radius: 4px; background: var(--input); border: 1px solid var(--subtle-border); }
+  .race-track:before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: repeating-linear-gradient(to right, var(--border) 0 10px, transparent 10px 18px); }
+  .race-distance { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, currentColor 8%, transparent); border-radius: 4px; transition: width 100ms linear; }
+  .race-drive-range { position: absolute; inset: 0 var(--car-width) 0 0; }
+  .race-car { position: absolute; top: 0; bottom: 0; width: var(--car-width); display: flex; align-items: center; justify-content: center; transition: left 100ms linear; z-index: 1; }
+  .race-car svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 20%, transparent)); }
+  .race-car svg path:first-child { fill: color-mix(in srgb, currentColor 22%, var(--panel)); }
+  .race-car svg circle { fill: var(--bg); }
+  .race-car[data-moving]:before { content: ''; position: absolute; right: 85%; width: 16px; height: 1px; background: currentColor; box-shadow: -3px 4px 0 currentColor; animation: race-trail var(--drive-duration) linear infinite; pointer-events: none; }
+  .race-finish { position: absolute; right: 0; top: 0; bottom: 0; width: 8px; border-radius: 0 3px 3px 0; opacity: .5; background: conic-gradient(var(--text) 25%, var(--input) 0 50%, var(--text) 0 75%, var(--input) 0); background-size: 6px 6px; }
+  .race-readout { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; white-space: nowrap; font-size: var(--small-size); font-variant-numeric: tabular-nums; }
+  .race-readout > span { color: var(--muted); }
+  .race-readout strong { font-weight: 500; }
+  .race-readout small { font-size: .9em; color: var(--muted); }
 }
 @media (prefers-reduced-motion: reduce) { *, *:before, *:after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

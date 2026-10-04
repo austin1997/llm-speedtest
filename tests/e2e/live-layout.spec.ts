@@ -47,6 +47,12 @@ for (const scenario of scenarios) {
     expect(geometry.width).toBeLessThanOrEqual(geometry.viewportWidth);
     expect(Math.min(...geometry.outputHeights), JSON.stringify(geometry.dimensions)).toBeGreaterThanOrEqual(18);
     expect(geometry.readable, JSON.stringify(geometry.dimensions)).toBe(true);
+    if (scenario.compare) {
+      await expect(page.getByRole('region', { name: '双端点输出竞速' })).toBeVisible();
+      const position = await page.locator('.token-race').evaluate(node => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: innerHeight }; });
+      expect(position.top).toBeGreaterThanOrEqual(0);
+      expect(position.bottom).toBeLessThanOrEqual(position.height);
+    } else await expect(page.locator('.token-race')).toHaveCount(0);
     await firstOutput.evaluate(node => { node.scrollTop = 0; });
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.screenshot({ path: `test-results/live-${scenario.name}.png` });

@@ -5,6 +5,7 @@ import { browserDecode, duration, endpointMetrics, outputCount, serverDecode, st
 import { autoContext, estimateTokens, generatePrompt } from './lib/prompt';
 import { connectionError, discoverModels, endpointUrl, inspectModel } from './lib/protocol';
 import type { BenchmarkConfig, EndpointConfig, RequestResult, RunState, Source } from './lib/types';
+import TokenRace from './TokenRace';
 
 type Theme = 'dark' | 'light' | 'system';
 const defaultConfig: BenchmarkConfig = { inputTokens: 1024, outputTokens: 512, concurrency: 1, temperature: null, thinking: 'default', timeoutSeconds: 300 };
@@ -254,7 +255,7 @@ export default function App() {
     } catch (err) { setError(connectionError(err)); }
   }
   async function copyPrompt() { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setError('无法访问剪贴板，请从预览中选择并复制文本。'); } }
-  return <div className={`app-shell viewport-shell ${phase === 0 ? 'configuration-shell' : phase === 1 ? 'running-shell' : 'results-shell'}`}>
+  return <div className={`app-shell viewport-shell ${phase === 0 ? 'configuration-shell' : phase === 1 ? 'running-shell' : 'results-shell'} ${phase === 1 && run?.endpoints.length === 2 ? 'race-comparison' : ''}`}>
     <header className="site-header">
       <a className="brand" href="/" aria-label="LLM Speedtest 首页"><span className="brand-icon"><Gauge size={25} strokeWidth={1.8} /></span><span>LLM <strong>SPEEDTEST</strong></span></a>
       <div className="header-tools">
@@ -273,6 +274,7 @@ export default function App() {
         <div>
           <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '测试结果'}</h1>
         </div>
+        {phase === 1 && run?.endpoints.length === 2 && <TokenRace run={run} />}
         {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} disabled={phase === 1 && run.phase === 'complete'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); setResultsVisible(false); controller.current = null; } }}>{phase === 1 ? run.phase === 'complete' ? <Check size={15} /> : <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? run.phase === 'complete' ? '测试结束' : '停止测试' : '再次测试'}</button>}
       </div>
       {!run ? <>

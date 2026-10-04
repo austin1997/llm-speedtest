@@ -53,3 +53,20 @@ export function endpointMetrics(run: RunState, id: 'A' | 'B') {
     tokens,
   };
 }
+
+export type RaceState = 'waiting' | 'driving' | 'budget' | 'error' | 'cancelled' | 'finished' | 'early';
+
+/** Keep the race on streaming estimates so final usage cannot move a car backwards. */
+export function raceProgress(run: RunState, id: 'A' | 'B') {
+  const requests = run.requests.filter(request => request.endpointId === id);
+  const budget = run.config.outputTokens * run.config.concurrency;
+  const generated = requests.reduce((sum, request) => sum + request.estimatedTokens, 0);
+  const speed = requests.reduce((sum, request) => sum + liveRate(request, run.now), 0);
+  const fraction = Math.max(0, Math.min(1, generated / budget));
+  const active = requests.some(request => request.status === 'pending' || request.status === 'running');
+  const state: RaceState = active ? generated === 0 ? 'waiting' : fraction >= 1 ? 'budget' : 'driving'
+    : requests.some(request => request.status === 'error') ? 'error'
+    : requests.some(request => request.status === 'cancelled') ? 'cancelled'
+    : fraction >= 1 ? 'finished' : 'early';
+  return { budget, generated, speed, fraction, active, state };
+}
