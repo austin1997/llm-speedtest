@@ -83,8 +83,15 @@ function EndpointCard({ endpoint, onChange, config }: { endpoint: EndpointConfig
     finally { if (current === revision.current) setLoading(false); }
   }
   const context = endpoint.contextLength ?? autoContext(config.inputTokens, config.outputTokens);
-  return <section className={`panel endpoint-card endpoint-${endpoint.id}`} aria-label={`端点 ${endpoint.id} 配置`}>
-    <div className="panel-title"><span className="endpoint-marker">{endpoint.id}</span><h2>测试端点</h2><span className="protocol-label">{endpoint.protocol === 'ollama' ? 'OLLAMA' : 'OPENAI API'}</span></div>
+  let address = endpoint.baseUrl.trim() || '未设置地址';
+  try { address = new URL(endpoint.baseUrl).host; } catch { /* An incomplete address remains editable. */ }
+  return <details className={`endpoint-disclosure endpoint-${endpoint.id}`} aria-label={`端点 ${endpoint.id} 配置`}>
+    <summary aria-label={`编辑端点 ${endpoint.id}`}>
+      <span className="endpoint-marker">{endpoint.id}</span>
+      <span className="endpoint-summary"><strong>{endpoint.model.trim() || '未设置模型'}</strong><span>{endpoint.protocol === 'ollama' ? 'Ollama' : 'OpenAI 兼容'} · {address}</span></span>
+      <span className="endpoint-edit-label">修改<ChevronDown size={15} /></span>
+    </summary>
+    <div className="endpoint-editor">
     <div className="segmented protocol-switch" aria-label={`端点 ${endpoint.id} 协议`}>
       <button className={endpoint.protocol === 'ollama' ? 'selected' : ''} onClick={() => onChange({ protocol: 'ollama', baseUrl: endpoint.baseUrl.replace(/\/v1\/?$/, ''), modelContextLimit: undefined })}>Ollama</button>
       <button className={endpoint.protocol === 'openai' ? 'selected' : ''} onClick={() => onChange({ protocol: 'openai', baseUrl: endpoint.protocol === 'ollama' ? endpoint.baseUrl.replace(/\/$/, '') + '/v1' : endpoint.baseUrl, modelContextLimit: undefined })}>OpenAI 兼容</button>
@@ -105,7 +112,8 @@ function EndpointCard({ endpoint, onChange, config }: { endpoint: EndpointConfig
         <p className="hint">自动值包含输入估算、输出预算与 512 token 余量。较长上下文会增加内存需求。</p>
       </>}
     </div></details>
-  </section>;
+    </div>
+  </details>;
 }
 
 function Slider({ label, value, min, max, unit, onChange, log = false, icon }: { label: string; value: number; min: number; max: number; unit: string; onChange: (n: number) => void; log?: boolean; icon: React.ReactNode }) {
@@ -157,7 +165,7 @@ function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointC
   </section>;
 }
 
-function Results({ run }: { run: RunState }) {
+function Results({ run, sectionRef }: { run: RunState; sectionRef: React.Ref<HTMLElement> }) {
   const metrics = run.endpoints.map(e => ({ endpoint: e, ...endpointMetrics(run, e.id) }));
   const a = metrics[0], b = metrics[1];
   function difference(av: number | null, bv: number | null, lower = false) {
@@ -175,7 +183,7 @@ function Results({ run }: { run: RunState }) {
     ['模型加载 · 端点报告', ...metrics.map(m => time(m.load.mean)), b ? difference(a.load.mean, b.load.mean, true) : ''],
     ['成功 / 失败 / 停止', ...metrics.map(m => `${m.successful.length} / ${m.failed} / ${m.cancelled}`), '—'],
   ];
-  return <section className="panel results-panel"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}>端点 {m.endpoint.id}</th>)}{b && <th>B 相对 A</th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id}>{row[i + 1]}</td>)}{b && <td className="comparison-cell">{row[row.length - 1]}</td>}</tr>)}</tbody></table></div>
+  return <section ref={sectionRef} className="panel results-panel" tabIndex={-1} aria-label="本轮结果"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}>端点 {m.endpoint.id}</th>)}{b && <th>B 相对 A</th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id}>{row[i + 1]}</td>)}{b && <td className="comparison-cell">{row[row.length - 1]}</td>}</tr>)}</tbody></table></div>
     <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id}><span className="endpoint-marker">{m.endpoint.id}</span><span>首字 min / max：{time(m.ttft.min)} / {time(m.ttft.max)}<br />decode min / max：{n(m.decode.min)} / {n(m.decode.max)} tok/s · 估算<br />成功率：{n(m.successful.length / m.requests.length * 100, 0)}%</span></div>)}</div>
     <details className="request-details"><summary>查看逐请求用量与服务数据<ChevronDown size={16} /></summary><div className="table-scroll"><table><thead><tr><th>请求</th><th>状态</th><th>首字</th><th>输入 token</th><th>输出 token</th><th>缓存输入</th><th>推理 token</th><th>服务端 decode</th><th>结束原因</th></tr></thead><tbody>{run.requests.map(r => <tr key={r.id}><td>{r.id}</td><td>{statusLabels[r.status]}</td><td>{time(ttft(r))}</td><td>{n(r.usage?.input ?? estimateTokens(run.prompt), 0)}{r.usage?.input === undefined && ' ≈'}</td><td>{n(outputCount(r).value, 0)}{outputCount(r).source === 'estimated' && ' ≈'}</td><td>{n(r.usage?.cachedInput, 0)}</td><td>{n(r.usage?.reasoning, 0)}</td><td>{n(serverDecode(r))} tok/s</td><td>{r.finishReason ?? '—'}</td></tr>)}</tbody></table></div></details>
     <p className="hint result-note">首字包括第一段思考或正文。输出上限不保证生成满额；浏览器与服务端 decode 使用不同口径。模型驻留、提示缓存及共享硬件会影响重复测试与 A/B 结果。</p>
@@ -194,6 +202,7 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const controller = useRef<ReturnType<typeof startBenchmark> | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const resultsRef = useRef<HTMLElement>(null);
   const prompt = useMemo(() => generatePrompt(config.inputTokens), [config.inputTokens]);
   const phase = run ? run.phase === 'running' ? 1 : 2 : 0;
   useEffect(() => {
@@ -205,7 +214,18 @@ export default function App() {
   }, [theme]);
   useEffect(() => { try { localStorage.setItem('llm-speedtest-config', JSON.stringify({ version: 1, config, endpoints: endpoints.map(({ apiKey: _key, modelContextLimit: _limit, ...endpoint }) => { let baseUrl = ''; try { endpointUrl({ ...endpoint, apiKey: '' }, 'chat'); baseUrl = endpoint.baseUrl; } catch { /* Invalid URLs may contain credentials. */ } return { ...endpoint, baseUrl }; }), compare })); } catch { /* Storage is optional. */ } }, [config, endpoints, compare]);
   useEffect(() => () => controller.current?.cancel(), []);
-  useEffect(() => { titleRef.current?.focus({ preventScroll: true }); }, [phase]);
+  useEffect(() => {
+    if (phase !== 2) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      if (phase === 1) titleRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      resultsRef.current?.focus({ preventScroll: true });
+      resultsRef.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [phase]);
   const updateConfig = (patch: Partial<BenchmarkConfig>) => setConfig(c => ({ ...c, ...patch }));
   const updateEndpoint = (id: EndpointConfig['id'], patch: Partial<EndpointConfig>) => setEndpoints(all => all.map(e => e.id === id ? { ...e, ...patch } : e));
   function begin() {
@@ -225,15 +245,68 @@ export default function App() {
     } catch (err) { setError(connectionError(err)); }
   }
   async function copyPrompt() { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setError('无法访问剪贴板，请从预览中选择并复制文本。'); } }
-  return <div className="app-shell">
-    <header className="site-header"><a className="brand" href="/" aria-label="LLM Speedtest 首页"><span className="brand-icon"><Gauge size={25} strokeWidth={1.8} /></span><span>LLM <strong>SPEEDTEST</strong><small>MODEL PERFORMANCE LAB</small></span></a><div className="header-tools"><button className={`help-button ${help ? 'active' : ''}`} onClick={() => setHelp(!help)} aria-expanded={help}><CircleHelp size={17} /><span>连接指南</span></button><div className="segmented theme-switch" aria-label="主题"><button title="浅色" aria-label="浅色主题" className={theme === 'light' ? 'selected' : ''} onClick={() => setTheme('light')}><Sun size={16} /></button><button title="跟随系统" aria-label="跟随系统主题" className={theme === 'system' ? 'selected' : ''} onClick={() => setTheme('system')}><Monitor size={16} /></button><button title="深色" aria-label="深色主题" className={theme === 'dark' ? 'selected' : ''} onClick={() => setTheme('dark')}><Moon size={16} /></button></div></div></header>
+  return <div className={`app-shell ${run ? 'run-shell' : 'configuration-shell'}`}>
+    <header className="site-header">
+      <a className="brand" href="/" aria-label="LLM Speedtest 首页"><span className="brand-icon"><Gauge size={25} strokeWidth={1.8} /></span><span>LLM <strong>SPEEDTEST</strong></span></a>
+      <div className="header-tools">
+        <button className={`help-button ${help ? 'active' : ''}`} onClick={() => setHelp(!help)} aria-expanded={help}><CircleHelp size={17} /><span>连接指南</span></button>
+        <div className="segmented theme-switch" aria-label="主题">
+          <button title="浅色" aria-label="浅色主题" className={theme === 'light' ? 'selected' : ''} onClick={() => setTheme('light')}><Sun size={16} /></button>
+          <button title="跟随系统" aria-label="跟随系统主题" className={theme === 'system' ? 'selected' : ''} onClick={() => setTheme('system')}><Monitor size={16} /></button>
+          <button title="深色" aria-label="深色主题" className={theme === 'dark' ? 'selected' : ''} onClick={() => setTheme('dark')}><Moon size={16} /></button>
+        </div>
+      </div>
+    </header>
     {help && <aside className="connection-guide panel"><div className="panel-title"><CircleHelp size={18} /><h2>浏览器直连指南</h2><button className="icon-button" aria-label="关闭连接指南" onClick={() => setHelp(false)}><X size={17} /></button></div><div className="guide-grid"><div><h3>本地 Ollama</h3><p>地址填写 <code>http://localhost:11434</code>。从部署网站访问时，将网站的完整来源加入 <code>OLLAMA_ORIGINS</code> 后重启 Ollama，并允许浏览器的本地网络访问。</p></div><div><h3>OpenAI 兼容服务</h3><p>填写带 <code>/v1</code> 的 API 基址或完整 Chat Completions 地址。服务必须允许当前网站跨域访问，以及 <code>Content-Type</code> 和需要时的 <code>Authorization</code> 请求头。</p></div><div><h3>遇到连接失败</h3><p>检查服务状态、端口、CORS 与 HTTPS 限制。浏览器可能隐藏具体原因；可在本机运行网站后测试。所有推理请求从当前浏览器发出。</p></div></div></aside>}
     <nav className="phase-nav" aria-label="测试阶段">{['配置测试', '实时测速', '测试结果'].map((label, i) => <span key={label} className={phase === i ? 'current' : phase > i ? 'passed' : ''} aria-current={phase === i ? 'step' : undefined}><b>{phase > i ? <Check size={12} /> : `0${i + 1}`}</b>{label}</span>)}</nav>
     <main className="main-content" key={run ? 'run' : 'config'}>
-      <div className="page-heading"><div><p className="eyebrow">{phase === 0 ? 'CONFIGURE YOUR BENCHMARK' : phase === 1 ? 'BENCHMARK IN PROGRESS' : 'BENCHMARK COMPLETE'}</p><h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '性能，正在发生。' : '这一轮，表现如何？'}</h1><p className="page-description">{phase === 0 ? '从第一字的等待，到每秒的生成。' : phase === 1 ? '实时接收模型输出，记录每一个性能变化。' : '用相同的口径，了解部署的实际表现。'}</p></div>{!run ? <button className={`compare-toggle ${compare ? 'enabled' : ''}`} aria-pressed={compare} onClick={() => setCompare(!compare)}>{compare ? <Check size={16} /> : <Plus size={16} />}A/B 对比<span className="toggle-track"><span /></span></button> : <button className={phase === 1 ? 'stop-button' : 'primary-button'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); controller.current = null; } }}>{phase === 1 ? <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? '停止测试' : '再次测试'}</button>}</div>
-      {!run ? <div className="configuration-workspace"><div className="endpoint-stack">{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard key={endpoint.id} endpoint={endpoint} config={config} onChange={patch => updateEndpoint(endpoint.id, patch)} />)}<div className="local-note"><span className="small-rule" /><p>直连你的部署<br /><span>请求与输出仅在当前浏览器处理</span></p></div></div><div className="configuration-main"><section className="panel parameters-panel"><div className="panel-title"><Settings2 size={18} /><h2>测试参数</h2><span className="optional">{compare ? '两端点共享' : '单轮测试'}</span></div><div className="parameter-grid"><Slider label="输入长度" value={config.inputTokens} min={128} max={32768} unit="token ≈" onChange={value => updateConfig({ inputTokens: value })} log icon={<Terminal size={15} />} /><Slider label="输出上限" value={config.outputTokens} min={32} max={8192} unit="token" onChange={value => updateConfig({ outputTokens: value })} log icon={<Zap size={15} />} /><Slider label="并发请求" value={config.concurrency} min={1} max={16} unit="/ 端点" onChange={value => updateConfig({ concurrency: value })} icon={<Layers3 size={15} />} /></div><div className="secondary-parameters"><label>思考模式<select aria-label="思考模式" value={config.thinking} onChange={e => updateConfig({ thinking: e.target.value as BenchmarkConfig['thinking'] })}><option value="default">服务默认</option><option value="on">开启思考</option><option value="off">关闭思考</option></select></label><label>Temperature<NumberInput aria-label="Temperature" min={0} max={2} step={0.1} value={config.temperature} nullable placeholder="服务默认" onValue={v => updateConfig({ temperature: v })} /></label><label>超时 / 秒<NumberInput aria-label="请求超时" min={30} max={1800} value={config.timeoutSeconds} onValue={v => updateConfig({ timeoutSeconds: Math.round(v ?? 30) })} /></label></div></section>
-      <section className="panel preview-panel"><div className="panel-title"><Terminal size={18} /><h2>输入预览</h2><span className="preview-token-count">≈ {estimateTokens(prompt).toLocaleString()} tokens</span><button className="icon-button" aria-label="复制输入" title="复制输入" onClick={copyPrompt}>{copied ? <Check size={16} /> : <Copy size={16} />}</button></div><pre className="prompt-preview" data-testid="prompt-preview">{prompt}</pre><div className="preview-footer"><span><span className="tiny-dot" />实际发送的完整用户消息</span><span>{prompt.length.toLocaleString()} 字符</span></div></section>
-      <div className="launch-area"><div className="launch-description"><span className="launch-kicker">READY WHEN YOU ARE</span><h3>{compare ? '两个端点，一次比较。' : '准备好，开始测速。'}</h3><p>{compare ? 2 * config.concurrency : config.concurrency} 个请求同时调度 · 思考与正文合并统计</p><p className="hint">输入 token 为估算；最终用量以端点报告为准。</p>{error && <p className="error-text launch-error" role="alert">{error}</p>}</div><button className="go-button" aria-label="开始测试" onClick={begin}><span>GO</span><small>开始测试</small></button></div></div></div> : <><div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{run.phase === 'running' && <span className="run-timer"><LoaderCircle size={14} className="spin" />{time(run.now - run.startedAt)}</span>}</div>{run.phase === 'complete' && <Results run={run} />}<div className={`monitors ${run.endpoints.length > 1 ? 'comparison' : ''}`}>{run.endpoints.map(endpoint => <EndpointMonitor key={endpoint.id} run={run} endpoint={endpoint} />)}</div></>}
-    </main><footer className="site-footer"><span><Activity size={13} />LLM SPEEDTEST<span className="footer-separator">/</span>浏览器实测</span><span>OpenAI compatible<span className="footer-dot">·</span>Ollama</span></footer>
+      <div className={`page-heading ${run ? '' : 'configuration-heading'}`}>
+        <div>
+          {run && <p className="eyebrow">{phase === 1 ? 'BENCHMARK IN PROGRESS' : 'BENCHMARK COMPLETE'}</p>}
+          <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '性能，正在发生。' : '这一轮，表现如何？'}</h1>
+          {run && <p className="page-description">{phase === 1 ? '实时接收模型输出，记录每一个性能变化。' : '用相同的口径，了解部署的实际表现。'}</p>}
+        </div>
+        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); controller.current = null; } }}>{phase === 1 ? <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? '停止测试' : '再次测试'}</button>}
+      </div>
+      {!run ? <>
+        <div className="configuration-workspace">
+          <section className="preview-panel" aria-label="输入预览">
+            <div className="panel-title"><h2>输入预览</h2><span className="preview-token-count">≈ {estimateTokens(prompt).toLocaleString()} tokens</span><button className="icon-button" aria-label="复制输入" title="复制输入" onClick={copyPrompt}>{copied ? <Check size={16} /> : <Copy size={16} />}</button></div>
+            <pre className="prompt-preview" data-testid="prompt-preview">{prompt}</pre>
+            <div className="preview-footer"><span>实际发送的完整输入</span><span>{prompt.length.toLocaleString()} 字符</span></div>
+          </section>
+          <div className="launch-area">
+            <button className="go-button" aria-label="开始测试" onClick={begin}><span>GO</span><small>开始测试</small></button>
+            <span className="launch-summary">{compare ? 2 * config.concurrency : config.concurrency} 个请求 · {compare ? 'A/B 对比' : '单端点'}</span>
+            {error && <p className="error-text launch-error" role="alert">{error}</p>}
+          </div>
+          <section className="parameters-panel" aria-label="测试参数">
+            <div className="panel-title"><h2>测试参数</h2></div>
+            <div className="parameter-grid">
+              <Slider label="输入长度" value={config.inputTokens} min={128} max={32768} unit="token ≈" onChange={value => updateConfig({ inputTokens: value })} log icon={<Terminal size={15} />} />
+              <Slider label="输出上限" value={config.outputTokens} min={32} max={8192} unit="token" onChange={value => updateConfig({ outputTokens: value })} log icon={<Zap size={15} />} />
+              <Slider label="并发请求" value={config.concurrency} min={1} max={16} unit="/ 端点" onChange={value => updateConfig({ concurrency: value })} icon={<Layers3 size={15} />} />
+            </div>
+            <details className="parameter-options">
+              <summary>更多参数<ChevronDown size={14} /></summary>
+              <div className="secondary-parameters">
+                <label>思考模式<select aria-label="思考模式" value={config.thinking} onChange={e => updateConfig({ thinking: e.target.value as BenchmarkConfig['thinking'] })}><option value="default">服务默认</option><option value="on">开启思考</option><option value="off">关闭思考</option></select></label>
+                <label>Temperature<NumberInput aria-label="Temperature" min={0} max={2} step={0.1} value={config.temperature} nullable placeholder="服务默认" onValue={v => updateConfig({ temperature: v })} /></label>
+                <label>超时 / 秒<NumberInput aria-label="请求超时" min={30} max={1800} value={config.timeoutSeconds} onValue={v => updateConfig({ timeoutSeconds: Math.round(v ?? 30) })} /></label>
+              </div>
+            </details>
+          </section>
+        </div>
+        <section className="endpoint-settings" aria-label="测试端点">
+          <div className="endpoint-settings-heading"><h2>测试端点</h2><button className={`compare-toggle ${compare ? 'enabled' : ''}`} aria-pressed={compare} onClick={() => setCompare(!compare)}>{compare ? <Check size={14} /> : <Plus size={14} />}A/B 对比</button></div>
+          <div className={`endpoint-stack ${compare ? 'two-endpoints' : ''}`}>{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard key={endpoint.id} endpoint={endpoint} config={config} onChange={patch => updateEndpoint(endpoint.id, patch)} />)}</div>
+        </section>
+      </> : <>
+        <div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{run.phase === 'running' && <span className="run-timer"><LoaderCircle size={14} className="spin" />{time(run.now - run.startedAt)}</span>}</div>
+        {run.phase === 'complete' && <Results run={run} sectionRef={resultsRef} />}
+        <div className={`monitors ${run.endpoints.length > 1 ? 'comparison' : ''}`}>{run.endpoints.map(endpoint => <EndpointMonitor key={endpoint.id} run={run} endpoint={endpoint} />)}</div>
+      </>}
+    </main>
+    <footer className="site-footer"><span><Activity size={13} />LLM SPEEDTEST<span className="footer-separator">/</span>浏览器实测</span><span>OpenAI compatible<span className="footer-dot">·</span>Ollama</span></footer>
   </div>;
 }

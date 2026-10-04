@@ -34,7 +34,7 @@ const server = http.createServer(async (req, res) => {
       } else { emit({ done: true, done_reason: 'length', prompt_eval_count: 111, prompt_eval_cached_count: 10, eval_count: 24, eval_duration: 800000000, prompt_eval_duration: 100000000, load_duration: 20000000 }); res.end(); }
       clearInterval(timer);
     }
-  }, req.url.startsWith('/slow') ? 3000 : 180);
+  }, req.url.startsWith('/slow') ? 3000 : req.url.startsWith('/scroll') ? 600 : 180);
   res.on('close', () => clearInterval(timer));
 });
 server.listen(4174, '127.0.0.1', () => console.log('Benchmark fixtures on http://127.0.0.1:4174'));
