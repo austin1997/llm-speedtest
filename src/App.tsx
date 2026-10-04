@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Check, ChevronDown, CircleHelp, Clock3, Copy, Gauge, Layers3, LoaderCircle, Monitor, Moon, Plus, Radio, RotateCcw, Settings2, Square, Sun, Terminal, X, Zap } from 'lucide-react';
 import { startBenchmark } from './lib/benchmark';
 import { endpointName } from './lib/endpoint';
-import { browserDecode, duration, endpointMetrics, outputCount, serverDecode, stats, ttft } from './lib/metrics';
+import { browserDecode, browserDecodeMetric, browserOutputDuration, duration, endpointMetrics, outputCount, serverDecode, serverPrefill, stats, ttft } from './lib/metrics';
 import { autoContext, estimateTokens, generatePrompt } from './lib/prompt';
 import { connectionError, discoverModels, endpointUrl, inspectModel } from './lib/protocol';
 import type { BenchmarkConfig, EndpointConfig, RequestResult, RunState, Source } from './lib/types';
@@ -146,9 +146,12 @@ function TrendChart({ run, endpoint, note }: { run: RunState; endpoint: Endpoint
   return <div className={`trend trend-${id}`}><div className="trend-label"><span><Activity size={14} />吞吐趋势 <span className="muted">· 估算</span></span><span>{n(max, 0)} tok/s</span></div><svg viewBox="0 0 600 100" preserveAspectRatio="none" role="img" aria-label={`${endpointName(endpoint, `端点 ${id}`)} 吞吐趋势`}><line className="chart-grid" x1="0" y1="16" x2="600" y2="16" /><line className="chart-grid" x1="0" y1="53" x2="600" y2="53" /><line className="chart-grid" x1="0" y1="90" x2="600" y2="90" />{points && <><polygon className="chart-area" points={`0,100 ${points} 600,100`} /><polyline className="chart-line" points={points} /></>}</svg><div className="chart-time"><span>0 s</span><span className="gauge-source">{note}</span><span>{n(end, 1)} s</span></div></div>;
 }
 
-function MetricCard({ label, value, unit, source = 'measured', icon }: { label: string; value: string; unit?: string; source?: Source; icon?: React.ReactNode }) {
-  return <div className="metric-card"><div className="metric-label">{icon}{label}</div><div className="metric-number">{value}{unit && <span>{unit}</span>}</div><span className={`source source-${source}`}>{sourceLabels[source]}</span></div>;
+function MetricCard({ label, value, unit, source = 'measured', icon, title }: { label: string; value: string; unit?: string; source?: Source; icon?: React.ReactNode; title?: string }) {
+  return <div className="metric-card" title={title}><div className="metric-label">{icon}{label}</div><div className="metric-number">{value}{unit && <span>{unit}</span>}</div><span className={`source source-${source}`}>{sourceLabels[source]}</span></div>;
 }
+
+const browserDecodeNote = '实际输出 token ÷ 首段文本到流完成的浏览器耗时；包含首段文本和尾部用量传输，只有一个文本片段时不可计算。缺少最终用量时回退到文本估算。';
+const overallSource = (source: Source) => `${source === 'reported' ? '实际' : '估算'} token · 浏览器计时`;
 
 const statusLabels = { pending: '等待开始', running: '接收中', success: '已完成', error: '失败', cancelled: '已停止' };
 function OutputWindow({ request, now }: { request: RequestResult; now: number }) {
@@ -169,8 +172,8 @@ function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointC
         <SpeedGauge value={complete ? metric.overall.value : metric.live} complete={complete} accent={endpoint.id} />
       </div>
       <div className="monitor-telemetry">
-        <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : stats(metric.requests.map(browserDecode)).mean)} unit="tok/s" source="estimated" /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
-        <TrendChart run={run} endpoint={endpoint} note={complete ? `${sourceLabels[metric.overall.source]} · 含首字等待的端到端吞吐` : '估算 · 思考与正文合并统计'} />
+        <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : metric.liveDecode.mean)} unit="tok/s" source={complete ? metric.decode.source : 'estimated'} title={browserDecodeNote} /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
+        <TrendChart run={run} endpoint={endpoint} note={complete ? `${overallSource(metric.overall.source)} · 含首字等待` : '估算 · 思考与正文合并统计'} />
       </div>
     </div>
     <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`${endpointName(endpoint, `端点 ${endpoint.id}`)} 输出`} data-dense={run.config.concurrency > 9 || undefined} style={{ '--output-columns': columns, '--output-rows': Math.ceil(run.config.concurrency / columns), '--last-span': columns - (run.config.concurrency - 1) % columns } as React.CSSProperties}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
@@ -193,25 +196,33 @@ function Results({ run }: { run: RunState }) {
   }
   const rows = [
     ['首字延迟', ...metrics.map(m => time(m.ttft.mean)), b ? difference(a.ttft.mean, b.ttft.mean, true) : ''],
-    ['浏览器 decode · 估算', ...metrics.map(m => `${n(m.decode.mean)} tok/s`), b ? difference(a.decode.mean, b.decode.mean) : ''],
-    ['整轮吞吐', ...metrics.map(m => `${n(m.overall.value)} tok/s · ${sourceLabels[m.overall.source]}`), b && a.overall.source === b.overall.source ? difference(a.overall.value, b.overall.value) : '口径不同或数据不足'],
+    ['浏览器 decode · 均值', ...metrics.map(m => `${n(m.decode.mean)} tok/s · ${m.decode.source === 'measured' ? '实测' : m.decode.mixed ? '含估算' : '估算'}`), b && a.decode.source === b.decode.source && !a.decode.mixed && !b.decode.mixed ? difference(a.decode.mean, b.decode.mean) : '口径不同或数据不足'],
+    ['整轮吞吐', ...metrics.map(m => `${n(m.overall.value)} tok/s · ${overallSource(m.overall.source)}`), b && a.overall.source === b.overall.source ? difference(a.overall.value, b.overall.value) : '口径不同或数据不足'],
     ['平均总耗时', ...metrics.map(m => time(m.duration.mean)), b ? difference(a.duration.mean, b.duration.mean, true) : ''],
-    ['服务端 decode · 端点报告', ...metrics.map(m => `${n(m.serverDecode.mean)} tok/s`), b && a.endpoint.protocol === 'ollama' && b.endpoint.protocol === 'ollama' ? difference(a.serverDecode.mean, b.serverDecode.mean) : '—'],
-    ['服务端 prefill · 端点报告', ...metrics.map(m => `${n(m.prefill.mean)} tok/s`), b && a.endpoint.protocol === 'ollama' && b.endpoint.protocol === 'ollama' ? difference(a.prefill.mean, b.prefill.mean) : '—'],
+    ['服务端 decode · 均值', ...metrics.map(m => `${n(m.serverDecode.mean)} tok/s`), b && a.endpoint.protocol === 'ollama' && b.endpoint.protocol === 'ollama' ? difference(a.serverDecode.mean, b.serverDecode.mean) : '—'],
+    ['服务端 prefill · 均值', ...metrics.map(m => `${n(m.prefill.mean)} tok/s`), b && a.endpoint.protocol === 'ollama' && b.endpoint.protocol === 'ollama' ? difference(a.prefill.mean, b.prefill.mean) : '—'],
     ['模型加载 · 端点报告', ...metrics.map(m => time(m.load.mean)), b ? difference(a.load.mean, b.load.mean, true) : ''],
     ['成功 / 失败 / 停止', ...metrics.map(m => `${m.successful.length} / ${m.failed} / ${m.cancelled}`), '—'],
   ];
-  return <section className="panel results-panel" aria-label="本轮结果"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll summary-table"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}><span className="result-endpoint-name" title={endpointName(m.endpoint, `端点 ${m.endpoint.id}`)}>{endpointName(m.endpoint, `端点 ${m.endpoint.id}`)}</span></th>)}{b && <th><span className="result-endpoint-name" title={`${bName} 相对 ${aName}`}>{bName} 相对 {aName}</span></th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id}>{row[i + 1]}</td>)}{b && <td className="comparison-cell"><span className="comparison-value" title={row[row.length - 1]}>{row[row.length - 1]}</span></td>}</tr>)}</tbody></table></div>
-    <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id} aria-label={`${endpointName(m.endpoint, `端点 ${m.endpoint.id}`)} 指标范围`}><span className="endpoint-marker" title={endpointName(m.endpoint)}>{m.endpoint.id}</span><div className="range-values"><span>首字范围 {time(m.ttft.min)} – {time(m.ttft.max)}</span><span>decode 范围 {n(m.decode.min)} – {n(m.decode.max)} tok/s ≈</span><span>成功率 {n(m.successful.length / m.requests.length * 100, 0)}%</span></div></div>)}</div>
+  function calculation(label: string, metric: typeof a) {
+    if (label.startsWith('浏览器 decode')) return `${browserDecodeNote} 此处为成功请求的速率均值。`;
+    if (label === '整轮吞吐') return `成功输出 ${n(metric.tokens, 0)} token ÷ 该端点整轮 ${time(metric.elapsed)}（浏览器计时，包含首字等待及所有并发请求）。`;
+    if (label.startsWith('服务端 decode')) return '端点报告的 eval_count ÷ eval_duration × 10⁹；耗时单位为纳秒。此处为逐请求速率均值，不是并发整轮吞吐。';
+    if (label.startsWith('服务端 prefill')) return '端点报告的 (prompt_eval_count − prompt_eval_cached_count) ÷ prompt_eval_duration × 10⁹；只衡量未缓存输入的处理阶段，展示逐请求均值。';
+    return undefined;
+  }
+  return <section className="panel results-panel" aria-label="本轮结果"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll summary-table"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}><span className="result-endpoint-name" title={endpointName(m.endpoint, `端点 ${m.endpoint.id}`)}>{endpointName(m.endpoint, `端点 ${m.endpoint.id}`)}</span></th>)}{b && <th><span className="result-endpoint-name" title={`${bName} 相对 ${aName}`}>{bName} 相对 {aName}</span></th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td title={calculation(row[0], a)}>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id} title={calculation(row[0], m)}>{row[i + 1]}</td>)}{b && <td className="comparison-cell"><span className="comparison-value" title={row[row.length - 1]}>{row[row.length - 1]}</span></td>}</tr>)}</tbody></table></div>
+    <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id} aria-label={`${endpointName(m.endpoint, `端点 ${m.endpoint.id}`)} 指标范围`}><span className="endpoint-marker" title={endpointName(m.endpoint)}>{m.endpoint.id}</span><div className="range-values"><span>首字范围 {time(m.ttft.min)} – {time(m.ttft.max)}</span><span>decode 范围 {n(m.decode.min)} – {n(m.decode.max)} tok/s{m.decode.source === 'estimated' && ' ≈'}</span><span>成功率 {n(m.successful.length / m.requests.length * 100, 0)}%</span></div></div>)}</div>
     <div className="result-disclosures">
-    <details className="request-details"><summary>查看逐请求用量与服务数据<ChevronDown size={16} /></summary><div className="table-scroll"><table><thead><tr><th>请求</th><th>状态</th><th>首字</th><th>输入 token</th><th>输出 token</th><th>缓存输入</th><th>推理 token</th><th>服务端 decode</th><th>结束原因</th></tr></thead><tbody>{run.requests.map(r => {
+    <details className="request-details"><summary>查看逐请求用量与服务数据<ChevronDown size={16} /></summary><div className="table-scroll"><table><thead><tr><th>请求</th><th>状态</th><th>首字</th><th>输入 token</th><th>输出 token</th><th>缓存输入</th><th>推理 token</th><th>浏览器 decode</th><th>输出阶段耗时</th><th>服务端 decode</th><th>服务 decode 耗时</th><th>服务端 prefill</th><th>服务 prefill 耗时</th><th>服务总耗时</th><th>请求总耗时</th><th>结束原因</th></tr></thead><tbody>{run.requests.map(r => {
       const endpoint = run.endpoints.find(e => e.id === r.endpointId)!;
       const name = endpoint.alias?.trim() ? `${endpointName(endpoint)} · ${r.index}` : r.id;
-      return <tr key={r.id}><td><span className="result-endpoint-name" title={`${name} (${r.id})`}>{name}</span></td><td>{statusLabels[r.status]}</td><td>{time(ttft(r))}</td><td>{n(r.usage?.input ?? estimateTokens(run.prompt), 0)}{r.usage?.input === undefined && ' ≈'}</td><td>{n(outputCount(r).value, 0)}{outputCount(r).source === 'estimated' && ' ≈'}</td><td>{n(r.usage?.cachedInput, 0)}</td><td>{n(r.usage?.reasoning, 0)}</td><td>{n(serverDecode(r))} tok/s</td><td>{r.finishReason ?? '—'}</td></tr>;
+      const decode = browserDecodeMetric(r);
+      return <tr key={r.id}><td><span className="result-endpoint-name" title={`${name} (${r.id})`}>{name}</span></td><td>{statusLabels[r.status]}</td><td>{time(ttft(r))}</td><td>{n(r.usage?.input ?? estimateTokens(run.prompt), 0)}{r.usage?.input === undefined && ' ≈'}</td><td>{n(outputCount(r).value, 0)}{outputCount(r).source === 'estimated' && ' ≈'}</td><td>{n(r.usage?.cachedInput, 0)}</td><td>{n(r.usage?.reasoning, 0)}</td><td title={browserDecodeNote}>{n(browserDecode(r))} tok/s{decode.source === 'estimated' && ' ≈'}</td><td>{time(browserOutputDuration(r))}</td><td title="eval_count / eval_duration × 10⁹">{n(serverDecode(r))} tok/s</td><td title={`eval_duration = ${n(r.timing?.decodeNs, 0)} ns`}>{time(r.timing?.decodeNs === undefined ? null : r.timing.decodeNs / 1e6)}</td><td title="(prompt_eval_count − prompt_eval_cached_count) / prompt_eval_duration × 10⁹">{n(serverPrefill(r))} tok/s</td><td title={`prompt_eval_duration = ${n(r.timing?.prefillNs, 0)} ns`}>{time(r.timing?.prefillNs === undefined ? null : r.timing.prefillNs / 1e6)}</td><td title={`total_duration = ${n(r.timing?.totalNs, 0)} ns`}>{time(r.timing?.totalNs === undefined ? null : r.timing.totalNs / 1e6)}</td><td>{time(duration(r, run.now))}</td><td>{r.finishReason ?? '—'}</td></tr>;
     })}</tbody></table></div></details>
     <details className="output-details"><summary aria-label="查看输出详情">查看输出与性能曲线<ChevronDown size={16} /></summary><BenchmarkDashboard run={run} /></details>
     </div>
-    <p className="hint result-note">首字包括第一段思考或正文。输出上限不保证生成满额；浏览器与服务端 decode 使用不同口径。模型驻留、提示缓存及共享硬件会影响重复测试与 A/B 结果。</p>
+    <p className="hint result-note">首字包括思考或正文。decode / prefill 是阶段速率；完成先后还受首字等待、输出量和并行调度影响。悬停数值可查看公式，展开逐请求数据可核对用量与耗时。</p>
   </section>;
 }
 

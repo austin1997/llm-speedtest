@@ -85,9 +85,9 @@ OpenAI 兼容部署需要允许当前网站的 CORS 来源，并允许 `POST`、
 | --- | --- |
 | 首字延迟 TTFT | 首段非空思考或正文到达减请求开始；忽略角色和空片段 |
 | 实时吞吐 | 最近一秒正在接收的请求的合并输出估算 token 增量，单位 tok/s |
-| 浏览器 decode | 首末文本片段之间的估算 token 增量 / 时间，排除首片段；只有一个片段时不可计算 |
-| 服务端 decode | Ollama `eval_count / eval_duration × 10⁹`，独立于浏览器指标 |
-| 服务端 prefill | Ollama `(prompt_eval_count - prompt_eval_cached_count) / prompt_eval_duration × 10⁹`；缺失缓存计数时按 0 处理 |
+| 浏览器 decode | 结束后优先使用实际输出 token / 首段文本至流完成的浏览器耗时，标为实测；缺少最终用量时保留字符估算 |
+| 服务端 decode | Ollama `eval_count / eval_duration × 10⁹`；汇总展示成功请求速率的算术均值，独立于并发整轮吞吐 |
+| 服务端 prefill | Ollama `(prompt_eval_count - prompt_eval_cached_count) / prompt_eval_duration × 10⁹`；衡量未缓存输入的处理阶段并展示逐请求均值，缺失缓存计数时按 0 处理 |
 | 模型加载 | Ollama `load_duration` 转为毫秒 |
 | 请求总耗时 | 从发送到流正常完成，包括网络、排队、加载和尾部用量事件 |
 | 整轮吞吐 | 成功请求输出 token 总数 / 端点最早请求开始至最后请求结束的墙钟时间 |
@@ -95,11 +95,17 @@ OpenAI 兼容部署需要允许当前网站的 CORS 来源，并允许 `POST`、
 
 整轮吞吐的时间包括失败或取消请求占用的时间；它们的输出不进入成功总量。延迟和 decode 均值 / 最小值 / 最大值仅包含成功且具有有效指标的请求。缺失或零时间指标显示 `—`。
 
-所有指标显示“端点报告”“浏览器测量”或“估算”。A/B 只比较相同口径，整体吞吐的 token 来源不同时不计算百分比。不同模型的 tokenizer 会影响估算误差。浏览器 decode 永远保留估算标记，不用服务 token 总数推断每个流片段的真实 token 数。
+实时浏览器 decode 使用首末文本片段之间的估算 token 增量，排除首片段。最终实测速率使用整段实际输出及首段文本至流完成的时间，包含首段文本与尾部用量传输；只有一个文本片段或零时长时显示 `—`，不推断每个片段的真实 token 数。不同模型的 tokenizer、流式缓冲及网络传输会影响浏览器速率与服务端速率之间的差异。
+
+整轮吞吐标明“实际/估算 token · 浏览器计时”，服务端 decode / prefill 使用端点报告的字段。A/B 只比较相同口径；混合实测与估算的浏览器均值不计算差异。悬停汇总数值可查看公式；逐请求详情提供实际用量、缓存输入、输出阶段耗时、服务 decode / prefill 耗时及总耗时，服务时间可悬停查看原始纳秒值。
+
+整轮完成更快不一定意味着 decode / prefill 更高：首字前等待、服务排队、输出量、提示缓存及并行调度都影响结果。服务端阶段速率不包含整轮所有等待。参考 [Ollama 用量与纳秒耗时定义](https://docs.ollama.com/api/usage)。
 
 并发 N 指客户端每端点同时发起 N 个独立请求；A/B 共 2N 个。浏览器连接限制与服务排队会影响实际并行数和端到端延迟。对比同一设备上的两个模型时，共享资源和模型换入换出也会影响结果。重复测试可能命中提示缓存或已驻留模型；缓存和加载数据可在结果中查看。
 
 Ollama 的生成并行度由服务端控制，与页面设置的并发请求数分开。当前官方说明中，`OLLAMA_NUM_PARALLEL` 默认是 1；需要同时生成时，在运行 Ollama 的服务环境中设置为所需并行数并重启服务。并行数增加也会增加上下文内存需求。[Ollama 并发说明](https://docs.ollama.com/faq#how-does-ollama-handle-concurrent-requests)
+
+Ollama 0.35.0 对 `qwen35moe` 等架构强制使用单路生成，即使设置了更大的 `OLLAMA_NUM_PARALLEL`。本机的 `qwen3.6:latest` 属于此架构，`qwen3:30b-a3b-q4_K_M` 的 `qwen3moe` 不在该限制名单中。因此页面并发 2 不保证两个模型具有相同的服务端并行度，应结合整轮吞吐和逐请求耗时比较。[对应版本调度源码](https://github.com/ollama/ollama/blob/v0.35.0/server/sched.go#L481)
 
 ## 验证
 

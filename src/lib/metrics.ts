@@ -6,9 +6,24 @@ export function ttft(request: RequestResult): number | null {
 export function duration(request: RequestResult, now: number): number | null {
   return request.startedAt !== null ? (request.endedAt ?? now) - request.startedAt : null;
 }
-export function browserDecode(request: RequestResult): number | null {
+export function estimatedBrowserDecode(request: RequestResult): number | null {
   if (request.firstAt === null || request.lastTextAt === null || request.lastTextAt <= request.firstAt) return null;
   return Math.max(0, request.estimatedTokens - request.firstTokens) * 1000 / (request.lastTextAt - request.firstAt);
+}
+export function browserOutputDuration(request: RequestResult): number | null {
+  return request.firstAt !== null && request.endedAt !== null && request.endedAt > request.firstAt ? request.endedAt - request.firstAt : null;
+}
+export function browserDecodeMetric(request: RequestResult): Metric {
+  if (request.endedAt !== null && request.usage?.output !== undefined) {
+    const elapsed = browserOutputDuration(request);
+    // Final usage describes the entire output, not the tokens in the first chunk.
+    const hasWindow = request.firstAt !== null && request.lastTextAt !== null && request.lastTextAt > request.firstAt;
+    return { value: elapsed !== null && hasWindow ? request.usage.output * 1000 / elapsed : null, source: 'measured' };
+  }
+  return { value: estimatedBrowserDecode(request), source: 'estimated' };
+}
+export function browserDecode(request: RequestResult): number | null {
+  return browserDecodeMetric(request).value;
 }
 export function liveRate(request: RequestResult, now: number): number {
   if (request.firstAt === null || request.status !== 'running') return 0;
@@ -38,14 +53,18 @@ export function endpointMetrics(run: RunState, id: 'A' | 'B') {
   const end = ended ? Math.max(...requests.map(r => r.endedAt!)) : run.now;
   const elapsed = starts.length ? end - Math.min(...starts) : 0;
   const tokens = successful.reduce((sum, r) => sum + outputCount(r).value!, 0);
-  const source = successful.every(r => outputCount(r).source === 'reported') ? 'reported' as const : 'estimated' as const;
+  const source = successful.length > 0 && successful.every(r => outputCount(r).source === 'reported') ? 'reported' as const : 'estimated' as const;
+  const decoded = successful.map(browserDecodeMetric);
+  const decodeSource = decoded.length > 0 && decoded.every(metric => metric.source === 'measured') ? 'measured' as const : 'estimated' as const;
+  const mixedDecode = decoded.some(metric => metric.source === 'measured') && decoded.some(metric => metric.source === 'estimated');
   return {
     requests, successful, elapsed,
     failed: requests.filter(r => r.status === 'error').length,
     cancelled: requests.filter(r => r.status === 'cancelled').length,
     active: requests.filter(r => r.status === 'running' || r.status === 'pending').length,
     live: requests.reduce((sum, r) => sum + liveRate(r, run.now), 0),
-    ttft: stats(successful.map(ttft)), decode: stats(successful.map(browserDecode)),
+    ttft: stats(successful.map(ttft)), decode: { ...stats(decoded.map(metric => metric.value)), source: decodeSource, mixed: mixedDecode },
+    liveDecode: stats(requests.map(estimatedBrowserDecode)),
     serverDecode: stats(successful.map(serverDecode)), prefill: stats(successful.map(serverPrefill)),
     load: stats(successful.map(r => r.timing?.loadNs === undefined ? null : r.timing.loadNs / 1e6)),
     duration: stats(successful.map(r => duration(r, run.now))),
