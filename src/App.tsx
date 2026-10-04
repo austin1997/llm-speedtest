@@ -222,14 +222,15 @@ export default function App() {
   const [compare, setCompare] = useState(initial.compare);
   const [theme, setTheme] = useState<Theme>(() => { try { const t = localStorage.getItem('llm-speedtest-theme'); return t === 'light' || t === 'dark' ? t : 'system'; } catch { return 'system'; } });
   const [run, setRun] = useState<RunState | null>(null);
-  const [resultsVisible, setResultsVisible] = useState(false);
+  const [resultsReady, setResultsReady] = useState(false);
+  const [raceAnimating, setRaceAnimating] = useState(false);
   const [error, setError] = useState('');
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const controller = useRef<ReturnType<typeof startBenchmark> | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prompt = useMemo(() => generatePrompt(config.inputTokens), [config.inputTokens]);
-  const phase = run ? resultsVisible ? 2 : 1 : 0;
+  const phase = run ? resultsReady && !raceAnimating ? 2 : 1 : 0;
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)');
     const apply = () => { document.documentElement.dataset.theme = theme === 'system' ? media.matches ? 'dark' : 'light' : theme; };
@@ -241,7 +242,7 @@ export default function App() {
   useEffect(() => () => controller.current?.cancel(), []);
   useEffect(() => {
     if (run?.phase !== 'complete') return;
-    const timer = setTimeout(() => setResultsVisible(true), 1000);
+    const timer = setTimeout(() => setResultsReady(true), 1000);
     return () => clearTimeout(timer);
   }, [run?.phase]);
   useEffect(() => { if (phase > 0) titleRef.current?.focus({ preventScroll: true }); }, [phase]);
@@ -260,7 +261,7 @@ export default function App() {
           if (endpoint.modelContextLimit && context > endpoint.modelContextLimit) throw new Error(`端点 ${endpoint.id} 的上下文超过模型报告的上限 ${endpoint.modelContextLimit.toLocaleString()}。`);
         }
       }
-      setResultsVisible(false);
+      setResultsReady(false); setRaceAnimating(false);
       controller.current = startBenchmark({ ...config }, active, prompt, setRun);
     } catch (err) { setError(connectionError(err)); }
   }
@@ -284,8 +285,8 @@ export default function App() {
         <div>
           <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '测试结果'}</h1>
         </div>
-        {phase === 1 && run?.endpoints.length === 2 && <TokenRace run={run} />}
-        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} disabled={phase === 1 && run.phase === 'complete'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); setResultsVisible(false); controller.current = null; } }}>{phase === 1 ? run.phase === 'complete' ? <Check size={15} /> : <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? run.phase === 'complete' ? '测试结束' : '停止测试' : '再次测试'}</button>}
+        {phase === 1 && run?.endpoints.length === 2 && <TokenRace run={run} onAnimationChange={setRaceAnimating} />}
+        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} disabled={phase === 1 && run.phase === 'complete'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); setResultsReady(false); setRaceAnimating(false); controller.current = null; } }}>{phase === 1 ? run.phase === 'complete' ? <Check size={15} /> : <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? run.phase === 'complete' ? '测试结束' : '停止测试' : '再次测试'}</button>}
       </div>
       {!run ? <>
         <div className="configuration-workspace">

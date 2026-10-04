@@ -60,6 +60,8 @@ export interface RunState {
   startedAt: number;
   now: number;
   requests: RequestResult[];
+  raceDistance: Record<EndpointConfig['id'], number>;
+  raceWinner?: { endpointId: EndpointConfig['id']; at: number };
   history: { at: number; A: number; B: number }[];
 }
 

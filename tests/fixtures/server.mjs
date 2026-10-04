@@ -1,13 +1,14 @@
 import http from 'node:http';
 
 let requests = [];
+let catchupRequests = 0;
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   if (req.url === '/test/requests') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(requests)); return; }
-  if (req.url === '/test/reset') { requests = []; res.end('ok'); return; }
+  if (req.url === '/test/reset') { requests = []; catchupRequests = 0; res.end('ok'); return; }
   if (req.url.endsWith('/api/tags')) { res.end(JSON.stringify({ models: [{ name: 'test-qwen' }] })); return; }
   if (req.url.endsWith('/v1/models')) { res.end(JSON.stringify({ data: [{ id: 'test-qwen' }] })); return; }
   let raw = ''; for await (const chunk of req) raw += chunk;
@@ -20,6 +21,21 @@ const server = http.createServer(async (req, res) => {
   const thinking = body.think === true || body.reasoning_effort === 'medium' || body.chat_template_kwargs?.enable_thinking === true;
   res.setHeader('Content-Type', openai ? 'text/event-stream' : 'application/x-ndjson');
   const emit = data => res.write(openai ? `data: ${JSON.stringify(data)}\n\n` : JSON.stringify(data) + '\n');
+  if (req.url.startsWith('/catchup')) {
+    const first = ++catchupRequests % 2 === 1;
+    const content = tokens => emit({ message: { content: 'abcd'.repeat(tokens) }, done: false });
+    const timers = first ? [
+      setTimeout(() => content(100), 100),
+      setTimeout(() => { emit({ done: true, eval_count: 20 }); res.end(); }, 700),
+    ] : [
+      setTimeout(() => content(20), 300),
+      setTimeout(() => content(40), 1800),
+      setTimeout(() => content(60), 2800),
+      setTimeout(() => { emit({ done: true, eval_count: 120 }); res.end(); }, 4800),
+    ];
+    res.on('close', () => timers.forEach(clearTimeout));
+    return;
+  }
   const standardPieces = thinking ? [{ reasoning: '先检查输入数据。\n' }, { content: '部署响应稳定，' }, { content: '吞吐表现良好。' }] : [{ content: '部署响应稳定，' }, { content: '吞吐表现良好。' }, { content: '\n<script>window.injected=true</script>' }];
   const racing = req.url.startsWith('/race-fast') || req.url.startsWith('/race-slow');
   const pieces = racing ? Array.from({ length: 60 }, () => ({ content: 'abcd'.repeat(req.url.startsWith('/race-fast') ? 8 : 2) })) : req.url.startsWith('/dashboard') ? Array.from({ length: 60 }, (_, i) => ({ content: `流式输出 ${i + 1}: ${'The benchmark measures latency, throughput, and concurrent requests. All output is preserved within its own scrollable window. '.repeat(10)}\n` })) : standardPieces;

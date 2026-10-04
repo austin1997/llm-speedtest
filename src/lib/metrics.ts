@@ -54,19 +54,25 @@ export function endpointMetrics(run: RunState, id: 'A' | 'B') {
   };
 }
 
-export type RaceState = 'waiting' | 'driving' | 'budget' | 'error' | 'cancelled' | 'finished' | 'early';
+export type RaceState = 'waiting' | 'driving' | 'catchup' | 'budget' | 'error' | 'cancelled' | 'finished' | 'early';
 
-/** Keep the race on streaming estimates so final usage cannot move a car backwards. */
+/** Calibration may lower the count; the car waits at its greatest displayed distance. */
 export function raceProgress(run: RunState, id: 'A' | 'B') {
   const requests = run.requests.filter(request => request.endpointId === id);
   const budget = run.config.outputTokens * run.config.concurrency;
   const generated = requests.reduce((sum, request) => sum + request.estimatedTokens, 0);
+  const output: Metric = {
+    value: requests.reduce((sum, request) => sum + (request.endedAt === null ? request.estimatedTokens : outputCount(request).value!), 0),
+    source: requests.length > 0 && requests.every(request => request.endedAt !== null && request.usage?.output !== undefined) ? 'reported' : 'estimated',
+  };
   const speed = requests.reduce((sum, request) => sum + liveRate(request, run.now), 0);
-  const fraction = Math.max(0, Math.min(1, generated / budget));
+  const distance = Math.max(0, Math.min(budget, Math.max(run.raceDistance[id], output.value!)));
+  const fraction = distance / budget;
   const active = requests.some(request => request.status === 'pending' || request.status === 'running');
-  const state: RaceState = active ? generated === 0 ? 'waiting' : fraction >= 1 ? 'budget' : 'driving'
+  const waitingForCalibration = active && output.value! < distance;
+  const state: RaceState = active ? distance === 0 ? 'waiting' : waitingForCalibration ? 'catchup' : fraction >= 1 ? 'budget' : 'driving'
     : requests.some(request => request.status === 'error') ? 'error'
     : requests.some(request => request.status === 'cancelled') ? 'cancelled'
     : fraction >= 1 ? 'finished' : 'early';
-  return { budget, generated, speed, fraction, active, state };
+  return { budget, generated, distance, output, speed, fraction, active, waitingForCalibration, state };
 }

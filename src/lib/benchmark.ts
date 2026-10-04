@@ -1,6 +1,6 @@
 import { estimateTokens, tokenWeight } from './prompt';
 import { connectionError, streamCompletion } from './protocol';
-import { liveRate } from './metrics';
+import { liveRate, outputCount } from './metrics';
 import type { BenchmarkConfig, EndpointConfig, RequestResult, RunState } from './types';
 
 export function startBenchmark(
@@ -11,17 +11,26 @@ export function startBenchmark(
   const clock = dependencies.clock ?? (() => performance.now());
   const targets = endpoints.map(endpoint => ({ ...endpoint }));
   const settings = { ...config };
+  const raceOutput = { A: 0, B: 0 };
+  const raceBudget = settings.outputTokens * settings.concurrency;
   const controllers: AbortController[] = [];
   let cancelling = false;
   const state: RunState = {
     phase: 'running', config: settings, endpoints: targets.map(e => ({ ...e, apiKey: '' })), prompt,
-    startedAt: clock(), now: clock(), history: [],
+    startedAt: clock(), now: clock(), history: [], raceDistance: { A: 0, B: 0 },
     requests: targets.flatMap(e => Array.from({ length: settings.concurrency }, (_, i): RequestResult => ({
       id: `${e.id}-${i + 1}`, endpointId: e.id, index: i + 1, status: 'pending', text: '',
       startedAt: null, firstAt: null, lastTextAt: null, endedAt: null, firstTokens: 0, estimatedTokens: 0, samples: [],
     }))),
   };
-  const snapshot = (): RunState => ({ ...state, history: [...state.history], requests: state.requests.map(r => ({ ...r, samples: [...r.samples] })) });
+  const snapshot = (): RunState => ({ ...state, raceDistance: { ...state.raceDistance }, history: [...state.history], requests: state.requests.map(r => ({ ...r, samples: [...r.samples] })) });
+  const advanceCar = (id: EndpointConfig['id'], delta: number) => {
+    raceOutput[id] += delta;
+    state.raceDistance[id] = Math.min(raceBudget, Math.max(state.raceDistance[id], raceOutput[id]));
+  };
+  const finishRace = (endpointId: EndpointConfig['id'], at: number) => {
+    if (targets.length === 2 && !state.raceWinner) state.raceWinner = { endpointId, at };
+  };
   const publish = () => { state.now = clock(); onUpdate(snapshot()); };
   let lastHistory = -Infinity;
   const ticker = setInterval(() => {
@@ -51,6 +60,7 @@ export function startBenchmark(
           weight += tokenWeight(event.text);
           request.text += event.text;
           request.estimatedTokens = Math.ceil(weight);
+          advanceCar(endpoint.id, request.estimatedTokens - before);
           if (request.firstAt === null) { request.firstAt = now; request.firstTokens = estimateTokens(event.text); }
           request.lastTextAt = now;
           request.samples.push({ at: now, tokens: request.estimatedTokens - before });
@@ -71,6 +81,8 @@ export function startBenchmark(
     } finally {
       clearTimeout(timeout);
       request.endedAt = clock();
+      advanceCar(endpoint.id, outputCount(request).value! - request.estimatedTokens);
+      if (state.requests.filter(r => r.endpointId === endpoint.id).every(r => r.status === 'success' && r.endedAt !== null)) finishRace(endpoint.id, request.endedAt);
     }
   })).then(() => {
     clearInterval(ticker);
