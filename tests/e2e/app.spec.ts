@@ -135,20 +135,33 @@ test('removes focus outlines on the heading and select without removing keyboard
   expect(focusStyle.color).toBe(focusStyle.text);
 });
 
-test('scrolls to the results after completion when viewing lower output windows', async ({ page }) => {
+test('completes with folded output details and no automatic scrolling', async ({ page }) => {
+  await page.addInitScript(() => {
+    const counters = { calls: 0 };
+    (window as any).__scrollCounters = counters;
+    const scrollTo = window.scrollTo.bind(window);
+    window.scrollTo = ((...args: any[]) => { counters.calls++; return (scrollTo as any)(...args); }) as typeof window.scrollTo;
+    const scrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function(this: Element, options?: boolean | ScrollIntoViewOptions) { counters.calls++; return scrollIntoView.call(this, options); };
+  });
+  await page.reload();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.setViewportSize({ width: 800, height: 720 });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await configure(page, 'A', 'http://127.0.0.1:4174/scroll');
   await page.getByLabel('并发请求数值').fill('8');
   await page.getByLabel('开始测试', { exact: true }).click();
+  await page.evaluate(() => { (window as any).__scrollCounters.calls = 0; });
+  await expect(page.getByRole('region', { name: '本轮结果', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__scrollCounters.calls)).toBe(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(page.getByRole('heading', { name: '测试结果', exact: true })).toBeFocused();
+  await expect(page.locator('.output-details')).not.toHaveAttribute('open');
+  await expect(page.locator('.output-window').first()).toBeHidden();
+  await page.getByLabel('查看输出详情').click();
   await expect(page.locator('.output-window')).toHaveCount(8);
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
-  const results = page.getByRole('region', { name: '本轮结果', exact: true });
-  await expect(results).toBeVisible();
-  await expect.poll(() => results.evaluate(node => Math.abs(node.getBoundingClientRect().top - 24))).toBeLessThan(3);
-  await expect(results).toBeFocused();
+  await expect(page.locator('.output-window').first()).toBeVisible();
+  await page.getByLabel('查看输出详情').click();
+  await expect(page.locator('.output-window').first()).toBeHidden();
   await page.getByRole('button', { name: '再次测试' }).click();
-  await expect(page.getByLabel('开始测试', { exact: true })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(page.getByLabel('并发请求数值')).toHaveValue('8');
 });

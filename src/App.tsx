@@ -130,14 +130,14 @@ function SpeedGauge({ value, complete = false, accent = 'A' }: { value: number |
   return <div className={`speed-gauge gauge-${accent}`}><svg viewBox="0 -16 320 226" aria-hidden="true"><path className="gauge-track" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" /><path className="gauge-fill" d="M 36 171 A 132 132 0 1 1 284 171" pathLength="100" strokeDasharray={`${progress * 100} 100`} />{Array.from({ length: 25 }, (_, i) => { const angle = (160 + i * 220 / 24) * Math.PI / 180; return <line key={i} className="gauge-tick" x1={160 + Math.cos(angle) * 113} y1={126 + Math.sin(angle) * 113} x2={160 + Math.cos(angle) * (i % 6 === 0 ? 103 : 108)} y2={126 + Math.sin(angle) * (i % 6 === 0 ? 103 : 108)} />; })}</svg><div className="gauge-number"><span className="gauge-caption">{complete ? '整轮吞吐' : '实时吞吐'}</span><strong>{n(value, 1)}</strong><span className="gauge-unit">tokens / sec</span></div><span className="gauge-min">0</span><span className="gauge-max">{max}</span></div>;
 }
 
-function TrendChart({ run, id }: { run: RunState; id: 'A' | 'B' }) {
+function TrendChart({ run, id, note }: { run: RunState; id: 'A' | 'B'; note: string }) {
   const data = run.history;
   const max = Math.max(10, ...data.map(point => point[id]));
   const end = Math.max(1, (run.now - run.startedAt) / 1000);
   // At most 300 chart points, regardless of the length of a run.
   const step = Math.max(1, Math.ceil(data.length / 300));
   const points = data.filter((_, index) => index % step === 0 || index === data.length - 1).map(point => `${point.at / end * 600},${90 - point[id] / max * 74}`).join(' ');
-  return <div className={`trend trend-${id}`}><div className="trend-label"><span><Activity size={14} />吞吐趋势 <span className="muted">· 估算</span></span><span>{n(max, 0)} tok/s</span></div><svg viewBox="0 0 600 100" preserveAspectRatio="none" role="img" aria-label={`端点 ${id} 吞吐趋势`}><line className="chart-grid" x1="0" y1="16" x2="600" y2="16" /><line className="chart-grid" x1="0" y1="53" x2="600" y2="53" /><line className="chart-grid" x1="0" y1="90" x2="600" y2="90" />{points && <><polygon className="chart-area" points={`0,100 ${points} 600,100`} /><polyline className="chart-line" points={points} /></>}</svg><div className="chart-time"><span>0 s</span><span>{n(end, 1)} s</span></div></div>;
+  return <div className={`trend trend-${id}`}><div className="trend-label"><span><Activity size={14} />吞吐趋势 <span className="muted">· 估算</span></span><span>{n(max, 0)} tok/s</span></div><svg viewBox="0 0 600 100" preserveAspectRatio="none" role="img" aria-label={`端点 ${id} 吞吐趋势`}><line className="chart-grid" x1="0" y1="16" x2="600" y2="16" /><line className="chart-grid" x1="0" y1="53" x2="600" y2="53" /><line className="chart-grid" x1="0" y1="90" x2="600" y2="90" />{points && <><polygon className="chart-area" points={`0,100 ${points} 600,100`} /><polyline className="chart-line" points={points} /></>}</svg><div className="chart-time"><span>0 s</span><span className="gauge-source">{note}</span><span>{n(end, 1)} s</span></div></div>;
 }
 
 function MetricCard({ label, value, unit, source = 'measured', icon }: { label: string; value: string; unit?: string; source?: Source; icon?: React.ReactNode }) {
@@ -161,18 +161,21 @@ function EndpointMonitor({ run, endpoint }: { run: RunState; endpoint: EndpointC
     <div className="monitor-overview">
       <div className="monitor-speed">
         <SpeedGauge value={complete ? metric.overall.value : metric.live} complete={complete} accent={endpoint.id} />
-        <div className="gauge-source">{complete ? `${sourceLabels[metric.overall.source]} · 含首字等待的端到端吞吐` : '估算 · 思考与正文合并统计'}</div>
       </div>
       <div className="monitor-telemetry">
         <div className="metric-grid"><MetricCard label="首字延迟" value={time(complete ? metric.ttft.mean : currentTTFT)} icon={<Zap size={14} />} /><MetricCard label="浏览器 decode" value={n(complete ? metric.decode.mean : stats(metric.requests.map(browserDecode)).mean)} unit="tok/s" source="estimated" /><MetricCard label={complete ? '平均总耗时' : '本轮已用时'} value={time(complete ? metric.duration.mean : metric.elapsed)} icon={<Clock3 size={14} />} /></div>
-        <TrendChart run={run} id={endpoint.id} />
+        <TrendChart run={run} id={endpoint.id} note={complete ? `${sourceLabels[metric.overall.source]} · 含首字等待的端到端吞吐` : '估算 · 思考与正文合并统计'} />
       </div>
     </div>
     <div className={`output-grid ${run.config.concurrency > 1 ? 'multiple' : ''}`} aria-label={`端点 ${endpoint.id} 输出`} data-dense={run.config.concurrency > 9 || undefined} style={{ '--output-columns': columns, '--output-rows': Math.ceil(run.config.concurrency / columns) } as React.CSSProperties}>{metric.requests.map(request => <OutputWindow key={request.id} request={request} now={run.now} />)}</div>
   </section>;
 }
 
-function Results({ run, sectionRef }: { run: RunState; sectionRef: React.Ref<HTMLElement> }) {
+function BenchmarkDashboard({ run }: { run: RunState }) {
+  return <div className={`monitors benchmark-dashboard ${run.endpoints.length > 1 ? 'comparison' : ''}`}>{run.endpoints.map(endpoint => <EndpointMonitor key={endpoint.id} run={run} endpoint={endpoint} />)}</div>;
+}
+
+function Results({ run }: { run: RunState }) {
   const metrics = run.endpoints.map(e => ({ endpoint: e, ...endpointMetrics(run, e.id) }));
   const a = metrics[0], b = metrics[1];
   function difference(av: number | null, bv: number | null, lower = false) {
@@ -190,9 +193,12 @@ function Results({ run, sectionRef }: { run: RunState; sectionRef: React.Ref<HTM
     ['模型加载 · 端点报告', ...metrics.map(m => time(m.load.mean)), b ? difference(a.load.mean, b.load.mean, true) : ''],
     ['成功 / 失败 / 停止', ...metrics.map(m => `${m.successful.length} / ${m.failed} / ${m.cancelled}`), '—'],
   ];
-  return <section ref={sectionRef} className="panel results-panel" tabIndex={-1} aria-label="本轮结果"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}>端点 {m.endpoint.id}</th>)}{b && <th>B 相对 A</th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id}>{row[i + 1]}</td>)}{b && <td className="comparison-cell">{row[row.length - 1]}</td>}</tr>)}</tbody></table></div>
-    <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id}><span className="endpoint-marker">{m.endpoint.id}</span><span>首字 min / max：{time(m.ttft.min)} / {time(m.ttft.max)}<br />decode min / max：{n(m.decode.min)} / {n(m.decode.max)} tok/s · 估算<br />成功率：{n(m.successful.length / m.requests.length * 100, 0)}%</span></div>)}</div>
+  return <section className="panel results-panel" aria-label="本轮结果"><div className="panel-title"><Layers3 size={18} /><h2>本轮结果</h2><span className="optional">成功请求的性能统计</span></div><div className="table-scroll summary-table"><table><thead><tr><th>指标</th>{metrics.map(m => <th key={m.endpoint.id}>端点 {m.endpoint.id}</th>)}{b && <th>B 相对 A</th>}</tr></thead><tbody>{rows.map(row => <tr key={row[0]}><td>{row[0]}</td>{metrics.map((m, i) => <td key={m.endpoint.id}>{row[i + 1]}</td>)}{b && <td className="comparison-cell">{row[row.length - 1]}</td>}</tr>)}</tbody></table></div>
+    <div className="stat-ranges">{metrics.map(m => <div key={m.endpoint.id}><span className="endpoint-marker">{m.endpoint.id}</span><div className="range-values"><span>首字范围 {time(m.ttft.min)} – {time(m.ttft.max)}</span><span>decode 范围 {n(m.decode.min)} – {n(m.decode.max)} tok/s ≈</span><span>成功率 {n(m.successful.length / m.requests.length * 100, 0)}%</span></div></div>)}</div>
+    <div className="result-disclosures">
     <details className="request-details"><summary>查看逐请求用量与服务数据<ChevronDown size={16} /></summary><div className="table-scroll"><table><thead><tr><th>请求</th><th>状态</th><th>首字</th><th>输入 token</th><th>输出 token</th><th>缓存输入</th><th>推理 token</th><th>服务端 decode</th><th>结束原因</th></tr></thead><tbody>{run.requests.map(r => <tr key={r.id}><td>{r.id}</td><td>{statusLabels[r.status]}</td><td>{time(ttft(r))}</td><td>{n(r.usage?.input ?? estimateTokens(run.prompt), 0)}{r.usage?.input === undefined && ' ≈'}</td><td>{n(outputCount(r).value, 0)}{outputCount(r).source === 'estimated' && ' ≈'}</td><td>{n(r.usage?.cachedInput, 0)}</td><td>{n(r.usage?.reasoning, 0)}</td><td>{n(serverDecode(r))} tok/s</td><td>{r.finishReason ?? '—'}</td></tr>)}</tbody></table></div></details>
+    <details className="output-details"><summary aria-label="查看输出详情">查看输出与性能曲线<ChevronDown size={16} /></summary><BenchmarkDashboard run={run} /></details>
+    </div>
     <p className="hint result-note">首字包括第一段思考或正文。输出上限不保证生成满额；浏览器与服务端 decode 使用不同口径。模型驻留、提示缓存及共享硬件会影响重复测试与 A/B 结果。</p>
   </section>;
 }
@@ -209,7 +215,6 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const controller = useRef<ReturnType<typeof startBenchmark> | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const resultsRef = useRef<HTMLElement>(null);
   const prompt = useMemo(() => generatePrompt(config.inputTokens), [config.inputTokens]);
   const phase = run ? run.phase === 'running' ? 1 : 2 : 0;
   useEffect(() => {
@@ -221,18 +226,7 @@ export default function App() {
   }, [theme]);
   useEffect(() => { try { localStorage.setItem('llm-speedtest-config', JSON.stringify({ version: 1, config, endpoints: endpoints.map(({ apiKey: _key, modelContextLimit: _limit, ...endpoint }) => { let baseUrl = ''; try { endpointUrl({ ...endpoint, apiKey: '' }, 'chat'); baseUrl = endpoint.baseUrl; } catch { /* Invalid URLs may contain credentials. */ } return { ...endpoint, baseUrl }; }), compare })); } catch { /* Storage is optional. */ } }, [config, endpoints, compare]);
   useEffect(() => () => controller.current?.cancel(), []);
-  useEffect(() => {
-    if (phase !== 2) {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-      if (phase === 1) titleRef.current?.focus({ preventScroll: true });
-      return;
-    }
-    const frame = requestAnimationFrame(() => {
-      resultsRef.current?.focus({ preventScroll: true });
-      resultsRef.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [phase]);
+  useEffect(() => { if (phase > 0) titleRef.current?.focus({ preventScroll: true }); }, [phase]);
   const updateConfig = (patch: Partial<BenchmarkConfig>) => setConfig(c => ({ ...c, ...patch }));
   const updateEndpoint = (id: EndpointConfig['id'], patch: Partial<EndpointConfig>) => setEndpoints(all => all.map(e => e.id === id ? { ...e, ...patch } : e));
   function begin() {
@@ -252,7 +246,7 @@ export default function App() {
     } catch (err) { setError(connectionError(err)); }
   }
   async function copyPrompt() { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setError('无法访问剪贴板，请从预览中选择并复制文本。'); } }
-  return <div className={`app-shell ${run ? 'run-shell' : 'configuration-shell'} ${phase === 1 ? 'running-shell' : ''}`}>
+  return <div className={`app-shell viewport-shell ${phase === 0 ? 'configuration-shell' : phase === 1 ? 'running-shell' : 'results-shell'}`}>
     <header className="site-header">
       <a className="brand" href="/" aria-label="LLM Speedtest 首页"><span className="brand-icon"><Gauge size={25} strokeWidth={1.8} /></span><span>LLM <strong>SPEEDTEST</strong></span></a>
       <div className="header-tools">
@@ -269,9 +263,7 @@ export default function App() {
     <main className="main-content" key={run ? 'run' : 'config'}>
       <div className={`page-heading ${run ? '' : 'configuration-heading'}`}>
         <div>
-          {phase === 2 && <p className="eyebrow">BENCHMARK COMPLETE</p>}
-          <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '这一轮，表现如何？'}</h1>
-          {phase === 2 && <p className="page-description">用相同的口径，了解部署的实际表现。</p>}
+          <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '测试结果'}</h1>
         </div>
         {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); controller.current = null; } }}>{phase === 1 ? <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? '停止测试' : '再次测试'}</button>}
       </div>
@@ -310,8 +302,7 @@ export default function App() {
         </section>
       </> : <>
         <div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{run.phase === 'running' && <span className="run-timer"><LoaderCircle size={14} className="spin" />{time(run.now - run.startedAt)}</span>}</div>
-        {run.phase === 'complete' && <Results run={run} sectionRef={resultsRef} />}
-        <div className={`monitors ${run.endpoints.length > 1 ? 'comparison' : ''}`}>{run.endpoints.map(endpoint => <EndpointMonitor key={endpoint.id} run={run} endpoint={endpoint} />)}</div>
+        {run.phase === 'complete' ? <Results run={run} /> : <BenchmarkDashboard run={run} />}
       </>}
     </main>
     <footer className="site-footer"><span><Activity size={13} />LLM SPEEDTEST<span className="footer-separator">/</span>浏览器实测</span><span>OpenAI compatible<span className="footer-dot">·</span>Ollama</span></footer>
