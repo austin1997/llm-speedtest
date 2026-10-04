@@ -211,13 +211,14 @@ export default function App() {
   const [compare, setCompare] = useState(initial.compare);
   const [theme, setTheme] = useState<Theme>(() => { try { const t = localStorage.getItem('llm-speedtest-theme'); return t === 'light' || t === 'dark' ? t : 'system'; } catch { return 'system'; } });
   const [run, setRun] = useState<RunState | null>(null);
+  const [resultsVisible, setResultsVisible] = useState(false);
   const [error, setError] = useState('');
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const controller = useRef<ReturnType<typeof startBenchmark> | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prompt = useMemo(() => generatePrompt(config.inputTokens), [config.inputTokens]);
-  const phase = run ? run.phase === 'running' ? 1 : 2 : 0;
+  const phase = run ? resultsVisible ? 2 : 1 : 0;
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)');
     const apply = () => { document.documentElement.dataset.theme = theme === 'system' ? media.matches ? 'dark' : 'light' : theme; };
@@ -227,6 +228,11 @@ export default function App() {
   }, [theme]);
   useEffect(() => { try { localStorage.setItem('llm-speedtest-config', JSON.stringify({ version: 1, config, endpoints: endpoints.map(({ apiKey: _key, modelContextLimit: _limit, ...endpoint }) => { let baseUrl = ''; try { endpointUrl({ ...endpoint, apiKey: '' }, 'chat'); baseUrl = endpoint.baseUrl; } catch { /* Invalid URLs may contain credentials. */ } return { ...endpoint, baseUrl }; }), compare })); } catch { /* Storage is optional. */ } }, [config, endpoints, compare]);
   useEffect(() => () => controller.current?.cancel(), []);
+  useEffect(() => {
+    if (run?.phase !== 'complete') return;
+    const timer = setTimeout(() => setResultsVisible(true), 1000);
+    return () => clearTimeout(timer);
+  }, [run?.phase]);
   useEffect(() => { if (phase > 0) titleRef.current?.focus({ preventScroll: true }); }, [phase]);
   const updateConfig = (patch: Partial<BenchmarkConfig>) => setConfig(c => ({ ...c, ...patch }));
   const updateEndpoint = (id: EndpointConfig['id'], patch: Partial<EndpointConfig>) => setEndpoints(all => all.map(e => e.id === id ? { ...e, ...patch } : e));
@@ -243,6 +249,7 @@ export default function App() {
           if (endpoint.modelContextLimit && context > endpoint.modelContextLimit) throw new Error(`端点 ${endpoint.id} 的上下文超过模型报告的上限 ${endpoint.modelContextLimit.toLocaleString()}。`);
         }
       }
+      setResultsVisible(false);
       controller.current = startBenchmark({ ...config }, active, prompt, setRun);
     } catch (err) { setError(connectionError(err)); }
   }
@@ -266,7 +273,7 @@ export default function App() {
         <div>
           <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '测试结果'}</h1>
         </div>
-        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); controller.current = null; } }}>{phase === 1 ? <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? '停止测试' : '再次测试'}</button>}
+        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} disabled={phase === 1 && run.phase === 'complete'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); setResultsVisible(false); controller.current = null; } }}>{phase === 1 ? run.phase === 'complete' ? <Check size={15} /> : <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? run.phase === 'complete' ? '测试结束' : '停止测试' : '再次测试'}</button>}
       </div>
       {!run ? <>
         <div className="configuration-workspace">
@@ -302,8 +309,8 @@ export default function App() {
           <div className={`endpoint-stack ${compare ? 'two-endpoints' : ''}`}>{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard key={endpoint.id} endpoint={endpoint} config={config} onChange={patch => updateEndpoint(endpoint.id, patch)} />)}</div>
         </section>
       </> : <>
-        <div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{run.phase === 'running' && <span className="run-timer"><LoaderCircle size={14} className="spin" />{time(run.now - run.startedAt)}</span>}</div>
-        {run.phase === 'complete' ? <Results run={run} /> : <BenchmarkDashboard run={run} />}
+        <div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{phase === 1 && <span className="run-timer">{run.phase === 'running' ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}{time(run.now - run.startedAt)}</span>}</div>
+        {phase === 2 ? <Results run={run} /> : <BenchmarkDashboard run={run} />}
       </>}
     </main>
     <footer className="site-footer"><span><Activity size={13} />LLM SPEEDTEST<span className="footer-separator">/</span>浏览器实测</span><span>OpenAI compatible<span className="footer-dot">·</span>Ollama</span></footer>

@@ -85,6 +85,7 @@ test('folded results retain all 32 outputs and request usage when expanded', asy
   await page.getByLabel('端点 B 地址', { exact: true }).fill('http://127.0.0.1:4174/v1');
   await page.getByLabel('并发请求数值').fill('16');
   await page.getByLabel('开始测试', { exact: true }).click();
+  await expect(page.locator('.status-success')).toHaveCount(32, { timeout: 10000 });
   await expect(page.getByRole('region', { name: '本轮结果', exact: true })).toBeVisible();
   await expect(page.locator('.output-window').first()).toBeHidden();
   await page.getByLabel('查看输出详情').click();

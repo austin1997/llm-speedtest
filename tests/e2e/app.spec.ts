@@ -151,6 +151,7 @@ test('completes with folded output details and no automatic scrolling', async ({
   await page.getByLabel('并发请求数值').fill('8');
   await page.getByLabel('开始测试', { exact: true }).click();
   await page.evaluate(() => { (window as any).__scrollCounters.calls = 0; });
+  await expect(page.getByRole('button', { name: '测试结束', exact: true })).toBeVisible({ timeout: 10000 });
   await expect(page.getByRole('region', { name: '本轮结果', exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__scrollCounters.calls)).toBe(0);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
@@ -164,4 +165,31 @@ test('completes with folded output details and no automatic scrolling', async ({
   await expect(page.locator('.output-window').first()).toBeHidden();
   await page.getByRole('button', { name: '再次测试' }).click();
   await expect(page.getByLabel('并发请求数值')).toHaveValue('8');
+});
+
+test('holds the final dashboard for one second before results and resets on retest', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const start = new Date('2026-10-04T00:00:00Z');
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(new Date(start.getTime() + 10000));
+  await configure(page);
+  await page.getByLabel('并发请求数值').fill('2');
+  for (let round = 0; round < 2; round++) {
+    await page.getByLabel('开始测试', { exact: true }).click();
+    await expect(page.locator('.status-success')).toHaveCount(2);
+    await expect(page.getByRole('button', { name: '测试结束', exact: true })).toBeDisabled();
+    await expect(page.locator('.running-shell')).toBeVisible();
+    await expect(page.locator('.results-panel')).toHaveCount(0);
+    const elapsed = await page.locator('.run-timer').textContent();
+    await page.clock.runFor(999);
+    await expect(page.locator('.running-shell')).toBeVisible();
+    await expect(page.locator('.results-panel')).toHaveCount(0);
+    await expect(page.locator('.run-timer')).toHaveText(elapsed!);
+    await page.clock.runFor(1);
+    await expect(page.getByRole('region', { name: '本轮结果', exact: true })).toBeVisible();
+    await expect(page.locator('.summary-table tbody tr').filter({ hasText: '平均总耗时' })).toContainText('0 ms');
+    await expect(page.locator('.output-window').first()).toBeHidden();
+    await page.getByRole('button', { name: '再次测试' }).click();
+    await expect(page.locator('.configuration-shell')).toBeVisible();
+  }
 });
