@@ -2,7 +2,7 @@
 
 一个用于测试 LLM 部署性能的浏览器测速网站。支持 OpenAI 兼容 Chat Completions 与 Ollama 原生接口、A/B 同时对比、每端点 1–16 并发、流式输出、思考模式和明暗主题。
 
-所有推理请求从用户浏览器直接发送到配置的端点。Cloudflare 仅托管前端静态资源。
+所有推理请求从用户浏览器直接发送到配置的端点。Cloudflare 托管前端静态资源；完成数据库迁移后，测速结束时可以把汇总结果写入 D1。
 
 ## 本地运行
 
@@ -37,7 +37,7 @@ npm run dev
 
 每个端点可设置一个可选别名，配置摘要、实时监控、赛车和结果均显示该别名。别名仅影响界面，不改变请求中的模型名；留空时沿用原来的名称。别名与其他非敏感配置一起保存在本机，较长名称在紧凑区域省略显示，悬停可查看全文。
 
-API Key 只保存在当前页面内存，刷新后清除；不会写入浏览器存储或构建产物。主题和其他配置保存在当前设备的 `localStorage`，不会上传。未配置推理代理、账号系统或云端测试历史。
+API Key 只保存在当前页面内存，刷新后清除，不会写入浏览器存储或构建产物。主题和其他非敏感配置保存在当前设备的 `localStorage`。未配置推理代理或账号系统。若部署启用了测速记录且页面上的“记录结果”保持开启，结束后会把端点地址、API Key 和汇总指标发送到本站 Worker。详见下文“测速记录”。
 
 OpenAI 兼容设置可切换输出上限字段 `max_tokens` / `max_completion_tokens`，也可以关闭 `stream_options.include_usage`。不支持参数时会显示服务返回的错误，不会在本轮测速自动重试。
 
@@ -142,11 +142,11 @@ OLLAMA_URL=http://localhost:11434 npm run test:ollama
 
 ## Cloudflare Workers 与 GitHub Actions
 
-`wrangler.jsonc` 使用 Workers Static Assets 托管 `dist/`，提供 SPA fallback，不运行推理服务。静态资源请求符合 Workers 的免费托管模式；LLM 服务本身可能有费用，具体取决于所选端点。[Cloudflare 静态资源计费](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)
+`wrangler.jsonc` 使用 Workers Static Assets 托管 `dist/`，提供 SPA fallback，不运行推理服务。只有 `/api/*` 会先进入 Worker；页面、脚本和样式仍由静态资源直接提供，符合 Workers 的免费托管模式。LLM 服务本身可能有费用，具体取决于所选端点。[Cloudflare 静态资源计费](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)
 
 GitHub Actions 工作流在 PR 和 `main` push 时执行检查、浏览器测试与部署预检。部署设置：
 
-1. 在 GitHub 仓库 Secrets 中配置 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。API Token 应具有目标账户的 Workers 部署权限。
+1. 在 GitHub 仓库 Secrets 中配置 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。API Token 需要目标账户的 Workers 部署权限和 D1 编辑权限。部署成功后会执行 `wrangler d1 migrations apply DB --remote`。
 2. 手动运行 **Validate and deploy** 工作流，会在所有检查成功后部署。
 3. 若需 `main` 自动部署，添加仓库变量 `ENABLE_CLOUDFLARE_DEPLOY=true`。未启用时 `main` 只验证。
 4. 如需更换 Worker 名称，修改 `wrangler.jsonc` 的 `name`；首次部署后将实际网站来源加入端点 CORS。
@@ -155,9 +155,45 @@ GitHub Actions 工作流在 PR 和 `main` push 时执行检查、浏览器测试
 
 [Cloudflare GitHub Actions 指南](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)
 
+## 测速记录
+
+部署并完成迁移后，页面会向 `GET /api/status` 询问数据库是否可用。可用时，GO 按钮下方出现“记录结果”，默认开启，选择保存在本机 `llm-speedtest-record`。关闭后不再上报。数据库未绑定、迁移尚未应用或 schema 版本低于 Worker 要求时，开关隐藏，测速照常进行。
+
+一次测速结束后提交一条记录，用户停止或请求失败也会提交。浏览器直连端点的推理请求不经过 Worker。记录内容是本轮结果的汇总，不是逐请求明细，也不包含输入或输出文本：
+
+- 测试参数、耗时、输入文本的 SHA-256 前 16 位十六进制。
+- 每个端点的协议、规范化地址、模型、别名、兼容选项和结果表中的汇总指标。
+- API Key 原文。相同 Key 以 SHA-256 指纹去重，只存一行；`secret_format` 目前固定为 `plain`，以后改成加密存储时不需要改动引用它的记录。
+- 来源 IP。Worker 只读取 Cloudflare 设置的 `CF-Connecting-IP`，请求体里的地址会被丢弃；没有这个头或格式不对时留空。这是上报结果时浏览器的公网地址，不是被测端点的地址。同一个 IP 只存一行。本地 `wrangler dev` 会记成 `127.0.0.1`。
+
+`/api/runs` 没有登录。它要求 JSON、同源 `Origin`、32 KB 以内的请求体，并用客户端生成的测速编号去重，重复提交不会再写一行。建议在账户套餐支持时为 `POST /api/runs` 配置速率限制。写入额度用尽只会使这次记录失败，可以在结果条上重试，不影响测速。
+
+D1 免费额度大约是每天 10 万行写入和 500 万行读取，存储合计 5 GB。维度表命中后，单端点一次测速大约写入 5 行，双端点大约 7 行（含记录本身和必要索引）；新的端点、模型、API Key 或来源 IP 才会额外写入。按双端点估算，约为一天 1.4 万次测速。[D1 定价](https://developers.cloudflare.com/d1/platform/pricing/)
+
+表分为 `endpoints`、`models`、`api_keys`、`source_ips` 和每次测速的 `runs`、`run_endpoints`。`meta.schema_version` 记录结构版本。`v_run_results` 把一次测速的每个端点展开成一行，其中包含 API Key 和来源 IP，不要把查询结果贴到公开场合。例如：
+
+```sql
+SELECT started_at, source_ip, slot, protocol, base_url, model, alias,
+       overall_tps, ttft_mean_ms, success_count, failure_count, cancelled_count
+FROM v_run_results
+ORDER BY started_at DESC
+LIMIT 20;
+```
+
+时间戳是 Unix 纪元毫秒。`npm run dev:worker` 在本地同时提供页面和 API；只跑 `npm run dev` 时没有数据库，开关不会出现。本地建表是 `npm run db:migrate:local`，远端是 `npm run db:migrate:remote`。`npm run deploy` 会在发布后应用远端迁移。
+
+首次 `wrangler deploy` 若配置里还没有 `database_id`，Wrangler 会按 `database_name` 查找或创建 `llm-speedtest`，并在交互式终端把 ID 写回 `wrangler.jsonc`。CI 不会改写配置文件，下次部署仍按数据库名称接上已有库。`npm run deploy:check` 不创建远端资源。
+
+迁移文件在 `migrations/`，只追加、不改已经发布的文件。新结构先加列或表，确认新旧 Worker 都能工作，再切换读写，最后另一次迁移清理旧列。重建表时在迁移里使用 `PRAGMA defer_foreign_keys = true`。应用迁移前可以用 `wrangler d1 export llm-speedtest --remote --output backup.sql` 备份；误迁移还可以用 D1 Time Travel 恢复。Worker 只在 `schema_version` 不低于代码要求时接受写入，因此先发布 Worker、后跑迁移的短时间里记录会暂停，而不是写坏数据。
+
+来源 IP 和 API Key 会一直保留完整值，目前没有自动过期或截断。如果需要保留期限，用新的迁移删除或截断旧行，不要直接改 `0001_init.sql`。
+
 ## 代码结构
 
-- `src/lib/`：输入生成、协议适配、测速执行和指标计算。
+- `src/lib/`：输入生成、协议适配、测速执行、指标计算和结果上报。
+- `shared/run-record.ts`：浏览器与 Worker 共用的记录格式和校验。
+- `worker/`：`/api/status`、`/api/runs` 和 D1 写入。
+- `migrations/`：按顺序应用的数据库迁移。
 - `src/App.tsx` 与 `src/styles.css`：配置、测速、结果及响应式主题界面。
 - `tests/`：单元测试、浏览器测试与本地 Ollama 集成测试。
-- `.github/workflows/ci.yml`：验证与可选部署。
+- `.github/workflows/ci.yml`：验证、可选部署和远端迁移。

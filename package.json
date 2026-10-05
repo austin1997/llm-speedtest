@@ -12,7 +12,10 @@
     "test:ollama": "vitest run --config vitest.live.config.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "deploy:check": "npm run build && wrangler deploy --dry-run --outdir .wrangler/dry-run",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy && wrangler d1 migrations apply DB --remote",
+    "dev:worker": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

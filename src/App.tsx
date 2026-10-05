@@ -7,6 +7,7 @@ import { autoContext, estimateTokens, generatePrompt } from './lib/prompt';
 import { connectionError, discoverModels, endpointUrl, inspectModel } from './lib/protocol';
 import { counterLabel, detectTokenCounter } from './lib/token-counter';
 import { sourceLabels, tokenQuantityLabel } from './lib/provenance';
+import { buildRunRecord, createRunId, fetchRecordingStatus, submitRunRecord, type RunRecord } from './lib/recording';
 import type { BenchmarkConfig, EndpointConfig, RequestResult, RunState, Source } from './lib/types';
 import TokenRace from './TokenRace';
 
@@ -267,8 +268,16 @@ export default function App() {
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [recordingAvailable, setRecordingAvailable] = useState(false);
+  const [recordResults, setRecordResults] = useState(() => { try { return localStorage.getItem('llm-speedtest-record') !== '0'; } catch { return true; } });
+  const [recordState, setRecordState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const preparation = useRef<AbortController | null>(null);
   const controller = useRef<ReturnType<typeof startBenchmark> | null>(null);
+  const recordingStatus = useRef<Promise<{ recording: boolean }> | null>(null);
+  const recordPayload = useRef<RunRecord | null>(null);
+  const recordGeneration = useRef(0);
+  const recordResultsRef = useRef(recordResults);
+  recordResultsRef.current = recordResults;
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prompt = useMemo(() => generatePrompt(config.inputTokens), [config.inputTokens]);
   const phase = run ? resultsReady && !raceAnimating ? 2 : 1 : 0;
@@ -281,6 +290,16 @@ export default function App() {
   }, [theme]);
   useEffect(() => { try { localStorage.setItem('llm-speedtest-config', JSON.stringify({ version: 1, config, endpoints: endpoints.map(({ apiKey: _key, modelContextLimit: _limit, tokenCounter: _counter, ...endpoint }) => { let baseUrl = ''; try { endpointUrl({ ...endpoint, apiKey: '' }, 'chat'); baseUrl = endpoint.baseUrl; } catch { /* Invalid URLs may contain credentials. */ } return { ...endpoint, baseUrl }; }), compare })); } catch { /* Storage is optional. */ } }, [config, endpoints, compare]);
   useEffect(() => () => { preparation.current?.abort(); controller.current?.cancel(); }, []);
+  function loadRecordingStatus() {
+    recordingStatus.current ??= fetchRecordingStatus();
+    return recordingStatus.current;
+  }
+  useEffect(() => {
+    let cancelled = false;
+    void loadRecordingStatus().then(status => { if (!cancelled) setRecordingAvailable(status.recording); });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => { try { localStorage.setItem('llm-speedtest-record', recordResults ? '1' : '0'); } catch { /* Storage is optional. */ } }, [recordResults]);
   useEffect(() => {
     if (run?.phase !== 'complete') return;
     const timer = setTimeout(() => setResultsReady(true), 1000);
@@ -320,9 +339,37 @@ export default function App() {
         return testedEndpoint ? { ...endpoint, tokenCounter: testedEndpoint.tokenCounter } : endpoint;
       }));
       setResultsReady(false); setRaceAnimating(false);
-      controller.current = startBenchmark(settings, tested, input, setRun);
+      const status = await loadRecordingStatus();
+      if (preflight.signal.aborted) return;
+      const benchmark = startBenchmark(settings, tested, input, setRun);
+      controller.current = benchmark;
+      if (status.recording && recordResultsRef.current) {
+        const generation = ++recordGeneration.current;
+        const runId = createRunId();
+        const startedAt = Date.now();
+        setRecordState('saving');
+        void benchmark.finished.then(async state => {
+          if (recordGeneration.current !== generation) return;
+          try {
+            const payload = await buildRunRecord({ run: state, endpoints: tested, runId, startedAt, appVersion: __APP_VERSION__, prompt: input });
+            if (recordGeneration.current !== generation) return;
+            recordPayload.current = payload;
+            const saved = await submitRunRecord(payload);
+            if (recordGeneration.current !== generation) return;
+            setRecordState(saved.ok ? 'saved' : 'failed');
+          } catch { if (recordGeneration.current === generation) setRecordState('failed'); }
+        });
+      } else { recordGeneration.current += 1; recordPayload.current = null; setRecordState('idle'); }
     } catch (err) { if (!preflight.signal.aborted) setError(connectionError(err)); }
     finally { if (preparation.current === preflight) { preparation.current = null; setPreparing(false); } }
+  }
+  async function retryRecord() {
+    const payload = recordPayload.current;
+    const generation = recordGeneration.current;
+    if (!payload) return;
+    setRecordState('saving');
+    const saved = await submitRunRecord(payload);
+    if (recordGeneration.current === generation) setRecordState(saved.ok ? 'saved' : 'failed');
   }
   async function copyPrompt() { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setError('无法访问剪贴板，请从预览中选择并复制文本。'); } }
   return <div className={`app-shell viewport-shell ${phase === 0 ? 'configuration-shell' : phase === 1 ? 'running-shell' : 'results-shell'} ${phase === 1 && run?.endpoints.length === 2 ? 'race-comparison' : ''}`}>
@@ -345,7 +392,7 @@ export default function App() {
           <h1 ref={titleRef} tabIndex={-1}>{phase === 0 ? '测量你的 LLM' : phase === 1 ? '实时测速' : '测试结果'}</h1>
         </div>
         {phase === 1 && run?.endpoints.length === 2 && <TokenRace run={run} onAnimationChange={setRaceAnimating} />}
-        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} disabled={phase === 1 && run.phase === 'complete'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { setRun(null); setResultsReady(false); setRaceAnimating(false); controller.current = null; } }}>{phase === 1 ? run.phase === 'complete' ? <Check size={15} /> : <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? run.phase === 'complete' ? '测试结束' : '停止测试' : '再次测试'}</button>}
+        {run && <button className={phase === 1 ? 'stop-button' : 'primary-button'} disabled={phase === 1 && run.phase === 'complete'} onClick={() => { if (phase === 1) controller.current?.cancel(); else { recordGeneration.current += 1; setRecordState('idle'); setRun(null); setResultsReady(false); setRaceAnimating(false); controller.current = null; } }}>{phase === 1 ? run.phase === 'complete' ? <Check size={15} /> : <Square size={15} /> : <RotateCcw size={17} />}{phase === 1 ? run.phase === 'complete' ? '测试结束' : '停止测试' : '再次测试'}</button>}
       </div>
       {!run ? <>
         <div className="configuration-workspace">
@@ -357,6 +404,7 @@ export default function App() {
           <div className="launch-area">
             <button className="go-button" aria-label={preparing ? '取消 token API 检测' : '开始测试'} onClick={begin}>{preparing ? <LoaderCircle size={54} className="spin" /> : <span>GO</span>}<small>{preparing ? '检测中 · 点击取消' : '开始测试'}</small></button>
             <span className="launch-summary">{compare ? 2 * config.concurrency : config.concurrency} 个请求 · {compare ? 'A/B 对比' : '单端点'}</span>
+            {recordingAvailable && <label className="record-toggle"><input type="checkbox" checked={recordResults} onChange={event => setRecordResults(event.target.checked)} />记录结果<small>含端点地址、API Key 与来源 IP，不含输入输出文本</small></label>}
             {error && <p className="error-text launch-error" role="alert">{error}</p>}
           </div>
           <section className="parameters-panel" aria-label="测试参数">
@@ -381,7 +429,7 @@ export default function App() {
           <div className={`endpoint-stack ${compare ? 'two-endpoints' : ''}`}>{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard key={endpoint.id} endpoint={endpoint} config={config} onChange={patch => updateEndpoint(endpoint.id, patch)} />)}</div>
         </section>
       </> : <>
-        <div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{phase === 1 && <span className="run-timer">{run.phase === 'running' ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}{time(run.now - run.startedAt)}</span>}</div>
+        <div className="run-config-strip"><span><Terminal size={14} />输入 ≈ {run.config.inputTokens.toLocaleString()}</span><span><Zap size={14} />输出上限 {run.config.outputTokens.toLocaleString()}</span><span><Layers3 size={14} />并发 {run.config.concurrency} / 端点</span><span>思考 {run.config.thinking === 'default' ? '服务默认' : run.config.thinking === 'on' ? '开启' : '关闭'}</span>{recordState !== 'idle' && <span className="record-status" data-testid="record-status">{recordState === 'saving' ? '记录中' : recordState === 'saved' ? '已记录' : <>记录失败<button type="button" onClick={retryRecord}>重试</button></>}</span>}{phase === 1 && <span className="run-timer">{run.phase === 'running' ? <LoaderCircle size={14} className="spin" /> : <Check size={14} />}{time(run.now - run.startedAt)}</span>}</div>
         {phase === 2 ? <Results run={run} /> : <BenchmarkDashboard run={run} />}
       </>}
     </main>
