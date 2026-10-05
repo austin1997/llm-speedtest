@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e', fullyParallel: false, workers: 1, timeout: 30000,
   use: { baseURL: 'http://localhost:5173', headless: true, trace: 'retain-on-failure',
+    // The suite's selectors use the Simplified Chinese interface; i18n.spec.ts overrides this per test.
+    locale: 'zh-CN',
     ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } } : {}),
   },
   projects: [

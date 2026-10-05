@@ -42,6 +42,16 @@ button, input, select, .panel { transition: background .2s ease, border-color .2
 .segmented button:hover { color: var(--text); }
 .segmented button.selected { background: var(--panel-raised); color: var(--text); box-shadow: 0 1px 4px #00000018; }
 .theme-switch button { padding: 8px 9px; }
+.lang-switch { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--input); color: var(--secondary); font-size: 0.8125rem; line-height: 1.25; white-space: nowrap; transition: color .2s ease, border-color .2s ease; }
+.lang-switch:hover { color: var(--text); border-color: var(--secondary); }
+.lang-switch:has(select:focus-visible) { outline: 2px solid var(--secondary); outline-offset: 4px; }
+.lang-switch svg { flex: none; }
+.lang-switch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The native select is the real control; it covers the pill and stays invisible. */
+.lang-switch select { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: inherit; opacity: 0; cursor: pointer; font-size: 1rem; }
+:root:lang(zh-TW) { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+:root:lang(ja) { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, sans-serif; }
+:root:lang(ko) { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; word-break: keep-all; overflow-wrap: break-word; }
 .phase-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 72px; margin: 24px 0; font-size: 0.8125rem; color: var(--muted); }
 .phase-nav > span { display: flex; gap: 9px; align-items: center; position: relative; }
 .phase-nav > span:not(:last-child):after { content: ''; position: absolute; left: calc(100% + 18px); width: 34px; height: 1px; background: var(--border); }
@@ -288,8 +298,11 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .brand { font-size: 1rem; gap: 8px; }
   .brand-icon { width: 32px; height: 36px; }
   .brand-icon svg { width: 21px; }
-  .header-tools { gap: 10px; }
+  .header-tools { gap: 8px; margin-left: auto; }
   .help-button span { display: none; }
+  /* On phones the pill shrinks to its icon; the native picker still lists every language. */
+  .lang-switch { padding: 8px; }
+  .lang-switch-name, .lang-switch-chevron { display: none; }
   .theme-switch { padding: 3px; }
   .theme-switch button { padding: 7px; }
   .theme-switch svg { width: 14px; }
@@ -347,6 +360,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .viewport-shell .brand { font-size: clamp(1rem, min(1.1vw, 1.8svh), 1.375rem); gap: 9px; }
   .viewport-shell .brand-icon { width: clamp(32px, 3svh, 44px); height: clamp(32px, 3svh, 44px); border-radius: 9px; }
   .viewport-shell .brand-icon svg { width: 21px; height: 21px; }
+  .viewport-shell .lang-switch { font-size: var(--body-size); padding: 6px 10px; }
   .viewport-shell .theme-switch { padding: 2px; }
   .viewport-shell .theme-switch button { padding: 6px 8px; }
   .viewport-shell .phase-nav { position: absolute; top: calc((var(--header-height) - 22px) / 2); left: 50%; transform: translateX(-50%); margin: 0; gap: clamp(28px, 2vw, 56px); font-size: clamp(.75rem, min(.8vw, 1.3svh), 1rem); white-space: nowrap; }

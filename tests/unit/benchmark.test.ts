@@ -26,7 +26,7 @@ describe('single-round execution', () => {
     const fetcher = vi.fn(async () => ++calls === 1 ? new Response('{"error":"overloaded"}', { status: 503 }) : new Response('{"done":true,"eval_count":0}\n')) as unknown as typeof fetch;
     const result = await startBenchmark({ ...config, concurrency: 2 }, [endpoint], 'x', () => {}, { fetcher }).finished;
     expect(result.requests.map(r => r.status)).toEqual(['error', 'success']);
-    expect(result.requests[0].error).toContain('503');
+    expect(result.requests[0].error).toEqual({ key: 'error.http', params: { status: 503, detail: 'overloaded' } });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it('aborts all active requests when cancelled', async () => {
@@ -43,7 +43,7 @@ describe('single-round execution', () => {
     await vi.advanceTimersByTimeAsync(30000);
     const result = await run.finished;
     expect(result.requests[0].status).toBe('error');
-    expect(result.requests[0].error).toContain('30 秒');
+    expect(result.requests[0].error).toEqual({ key: 'error.timeout', params: { seconds: 30 } });
   });
   it('preserves partial output after a truncated stream', async () => {
     const fetcher = vi.fn(async () => new Response('{"message":{"content":"partial"}}\n')) as unknown as typeof fetch;
@@ -200,7 +200,7 @@ describe('single-round execution', () => {
     stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); stream.close();
     const result = await run.finished;
     expect(result.requests[0]).toMatchObject({ status: 'success', tokenSource: 'estimated', tokenCounting: 'failed' });
-    expect(result.requests[0].tokenCountError).toContain('503');
+    expect(result.requests[0].tokenCountError).toEqual({ key: 'error.counter.fallback', params: { reason: { key: 'error.counter.http', params: { status: 503 } } } });
     const pendingFetcher = vi.fn(async (url: any, init: any) => {
       signals.push(init.signal);
       if (String(url).endsWith('/tokenize')) return await new Promise<Response>((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))));

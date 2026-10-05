@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalBaseUrl, parseRunRecord, RecordParseError } from '../../shared/run-record';
+import { msg } from '../../src/i18n/message';
 import { buildRunRecord } from '../../src/lib/recording';
 import type { RequestResult, RunState } from '../../src/lib/types';
 import { config, endpoint } from './fixtures';
@@ -30,6 +31,12 @@ describe('run records', () => {
     expect(parsed.endpoints[0].alias).toBe('本地');
     expect(JSON.stringify(parsed)).not.toContain('sourceIp');
     expect(parseRunRecord({ ...record, endpoints: [{ ...record.endpoints[0], result: { ...record.endpoints[0].result, overallTps: Number.POSITIVE_INFINITY } }] }).endpoints[0].result.overallTps).toBeNull();
+  });
+
+  it('records error samples in English whatever language the interface shows', async () => {
+    const run = state([request({ status: 'error', error: msg('error.timeout', { seconds: 1200 }) })]);
+    const record = await buildRunRecord({ run, endpoints: [endpoint], runId: '22222222-2222-4222-8222-222222222222', startedAt: 1_700_000_000_000, appVersion: 'test', prompt: 'prompt text' });
+    expect(record.endpoints[0].result.errorSample).toBe('The request exceeded 1,200 seconds and was terminated.');
   });
 
   it('rejects a record whose shape or schema version is not supported', () => {

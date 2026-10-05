@@ -87,7 +87,7 @@ export function endpointMetrics(run: RunState, id: 'A' | 'B') {
     active: requests.filter(r => r.status === 'running' || r.status === 'pending').length,
     live: requests.reduce((sum, r) => sum + liveRate(r, run.now), 0),
     liveSource: combinedSource((activeRequests.length ? activeRequests : requests).map(request => ({ value: 0, source: request.countedTokens !== undefined && request.tokenSource !== 'estimated' ? 'calibrated' : 'estimated' }))),
-    tokenWarnings: [...new Set(requests.flatMap(r => r.tokenCountError ? [r.tokenCountError] : []))],
+    tokenWarnings: [...new Map(requests.flatMap(r => r.tokenCountError ? [[JSON.stringify(r.tokenCountError), r.tokenCountError] as const] : [])).values()],
     finalizingTokens: requests.some(r => r.tokenCounting === 'finalizing'),
     ttft: stats(successful.map(ttft)), decode: { ...stats(decoded.map(metric => metric.value)), source: decodeSource, mixed: mixedDecode },
     liveDecode: { ...stats(liveDecoded.map(metric => metric.value)), source: combinedSource(liveDecoded) },

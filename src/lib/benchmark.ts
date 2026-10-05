@@ -1,5 +1,6 @@
+import { describeError, LocalizedError, msg } from '../i18n/message';
 import { estimateTokens, tokenWeight } from './prompt';
-import { connectionError, streamCompletion } from './protocol';
+import { streamCompletion } from './protocol';
 import { liveRate, outputCount, streamTokenCount } from './metrics';
 import { counterSource, LiveTokenCounter, TokenCountPool } from './token-counter';
 import type { BenchmarkConfig, EndpointConfig, RequestResult, RunState } from './types';
@@ -59,7 +60,7 @@ export function startBenchmark(
     const pool = pools.get(endpoint.id);
     const failCounter = (error: unknown) => {
       request.tokenSource = 'estimated'; request.tokenCounting = 'failed';
-      request.tokenCountError = `计数 API 已回退估算：${error instanceof Error ? error.message : String(error)}`;
+      request.tokenCountError = msg('error.counter.fallback', { reason: describeError(error) });
     };
     let counter: LiveTokenCounter | null = null;
     if (pool && endpoint.tokenCounter) {
@@ -102,11 +103,11 @@ export function startBenchmark(
           request.finishReason = event.reason;
         }
       }
-      if (request.status !== 'success') throw new Error('响应未正常完成。');
+      if (request.status !== 'success') throw new LocalizedError('error.incomplete');
     } catch (error) {
-      if (timedOut) { request.status = 'error'; request.error = `请求超过 ${settings.timeoutSeconds} 秒，已终止。`; }
+      if (timedOut) { request.status = 'error'; request.error = msg('error.timeout', { seconds: settings.timeoutSeconds }); }
       else if (cancelling && controller.signal.aborted) request.status = 'cancelled';
-      else { request.status = 'error'; request.error = connectionError(error); }
+      else { request.status = 'error'; request.error = describeError(error); }
     } finally {
       clearTimeout(timeout);
       request.endedAt = clock();
@@ -116,7 +117,7 @@ export function startBenchmark(
         if (request.status === 'success' && request.usage?.output === undefined && !controller.signal.aborted && request.tokenCounting !== 'failed') {
           request.tokenCounting = 'finalizing';
           const complete = await counter.finish({ text: request.text, at: request.lastTextAt ?? request.endedAt, estimated: request.estimatedTokens, scale: request.tokenScale ?? 1 });
-          if (!complete && !request.tokenCountError) failCounter(new Error('末次文本计数未完成。'));
+          if (!complete && !request.tokenCountError) failCounter(new LocalizedError('error.counter.finalIncomplete'));
         } else counter.stop();
         if (request.tokenCounting !== 'failed') request.tokenCounting = 'done';
         advanceCar(request);

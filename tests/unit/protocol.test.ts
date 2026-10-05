@@ -11,6 +11,8 @@ async function events(protocol: EndpointConfig['protocol'], text: string, size =
   const result = []; for await (const event of parseStream(protocol, fragmented(text, size))) result.push(event); return result;
 }
 
+const thrown = (action: () => unknown) => { try { action(); } catch (error) { return error; } return undefined; };
+
 describe('protocol adapters', () => {
   it('decodes split Chinese bytes, empty chunks, thinking and final Ollama usage', async () => {
     const result = await events('ollama', '\n' + [
@@ -41,10 +43,11 @@ describe('protocol adapters', () => {
     expect(result[1]).toMatchObject({ usage: { output: 12, reasoning: 8 } });
   });
   it('rejects truncated streams, malformed JSON and upstream errors', async () => {
-    await expect(events('ollama', '{"message":{"content":"partial"}}\n')).rejects.toThrow('意外结束');
-    await expect(events('openai', 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')).rejects.toThrow('意外结束');
-    await expect(events('openai', 'data: not-json\n\n')).rejects.toThrow('JSON');
+    await expect(events('ollama', '{"message":{"content":"partial"}}\n')).rejects.toMatchObject({ msg: { key: 'error.streamEnded' } });
+    await expect(events('openai', 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')).rejects.toMatchObject({ msg: { key: 'error.streamEnded' } });
+    await expect(events('openai', 'data: not-json\n\n')).rejects.toMatchObject({ msg: { key: 'error.streamInvalidJson' } });
     await expect(events('ollama', '{"error":"model not found"}\n')).rejects.toThrow('model not found');
+    await expect(events('ollama', '{"error":{}}\n')).rejects.toMatchObject({ msg: { key: 'error.endpointError' } });
   });
   it('maps limits, temperature, context and thinking only as configured', () => {
     expect(requestBody(endpoint, config, 'the exact preview')).toEqual({ model: 'test', messages: [{ role: 'user', content: 'the exact preview' }], stream: true, options: { num_predict: 512, num_ctx: 4096 } });
@@ -58,6 +61,6 @@ describe('protocol adapters', () => {
   it('normalizes base and full endpoint URLs and rejects ambiguous credentials', () => {
     expect(endpointUrl({ ...endpoint, baseUrl: 'http://localhost:11434/api/chat' }, 'models')).toBe('http://localhost:11434/api/tags');
     expect(endpointUrl({ ...endpoint, protocol: 'openai', baseUrl: 'https://example.com/prefix/v1/chat/completions/' }, 'models')).toBe('https://example.com/prefix/v1/models');
-    expect(() => endpointUrl({ ...endpoint, baseUrl: 'https://secret@example.com/v1' }, 'chat')).toThrow('用户名');
+    expect(thrown(() => endpointUrl({ ...endpoint, baseUrl: 'https://secret@example.com/v1' }, 'chat'))).toMatchObject({ msg: { key: 'error.endpointUrl' } });
   });
 });

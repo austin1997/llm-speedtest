@@ -1,10 +1,11 @@
+import { LocalizedError } from '../i18n/message';
 import { autoContext } from './prompt';
 import type { BenchmarkConfig, EndpointConfig, StreamEvent } from './types';
 
 export function endpointUrl(endpoint: EndpointConfig, resource: 'chat' | 'models' | 'show'): string {
   const url = new URL(endpoint.baseUrl.trim());
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw new Error('端点地址须为 HTTP(S) 地址，不含用户名、密码、查询参数或片段。');
+    throw new LocalizedError('error.endpointUrl');
   }
   let path = url.pathname.replace(/\/+$/, '');
   if (endpoint.protocol === 'ollama') {
@@ -41,19 +42,12 @@ function headers(endpoint: EndpointConfig): HeadersInit {
   return { 'Content-Type': 'application/json', ...(endpoint.apiKey.trim() ? { Authorization: `Bearer ${endpoint.apiKey.trim()}` } : {}) };
 }
 
-export function connectionError(error: unknown): string {
-  if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
-    return '连接失败。请检查地址与服务状态、端点 CORS、HTTPS 限制和浏览器本地网络访问权限。浏览器未提供具体失败原因。';
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
 async function assertResponse(response: Response): Promise<void> {
   if (response.ok) return;
   const text = (await response.text()).slice(0, 1000);
-  let detail = text;
-  try { const data = JSON.parse(text); detail = typeof data.error === 'string' ? data.error : data.error?.message ?? data.message ?? text; } catch { /* Plain-text upstream error. */ }
-  throw new Error(`HTTP ${response.status}${detail ? `：${detail}` : ''}`);
+  let detail: string = text;
+  try { const data = JSON.parse(text); detail = String(typeof data.error === 'string' ? data.error : data.error?.message ?? data.message ?? text); } catch { /* Plain-text upstream error. */ }
+  throw detail ? new LocalizedError('error.http', { status: response.status, detail }) : new LocalizedError('error.httpBare', { status: response.status });
 }
 
 async function* lines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -69,7 +63,7 @@ async function* lines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> 
         yield buffer.slice(0, pos).replace(/\r$/, '');
         buffer = buffer.slice(pos + 1);
       }
-      if (buffer.length > 2_000_000) throw new Error('流式响应片段过大，无法解析。');
+      if (buffer.length > 2_000_000) throw new LocalizedError('error.streamChunkTooLarge');
       if (done) break;
     }
     if (buffer) yield buffer.replace(/\r$/, '');
@@ -87,10 +81,10 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string
 
 function parseObject(raw: string): Record<string, any> {
   let data: unknown;
-  try { data = JSON.parse(raw); } catch { throw new Error('端点返回了无法解析的流式 JSON。'); }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('端点返回的流式数据格式不正确。');
+  try { data = JSON.parse(raw); } catch { throw new LocalizedError('error.streamInvalidJson'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new LocalizedError('error.streamBadFormat');
   const object = data as Record<string, any>;
-  if (object.error) throw new Error(typeof object.error === 'string' ? object.error : object.error.message ?? '端点返回错误。');
+  if (object.error) throw typeof object.error === 'string' ? new Error(object.error) : object.error.message ? new Error(object.error.message) : new LocalizedError('error.endpointError');
   return object;
 }
 
@@ -132,7 +126,7 @@ export async function* parseStream(protocol: EndpointConfig['protocol'], body: R
       }
     }
   }
-  throw new Error('响应流意外结束，未收到完成标记。已接收的输出已保留。');
+  throw new LocalizedError('error.streamEnded');
 }
 
 export async function* streamCompletion(endpoint: EndpointConfig, config: BenchmarkConfig, prompt: string, signal: AbortSignal, fetcher: typeof fetch = fetch): AsyncGenerator<StreamEvent> {
@@ -140,7 +134,7 @@ export async function* streamCompletion(endpoint: EndpointConfig, config: Benchm
     method: 'POST', headers: headers(endpoint), body: JSON.stringify(requestBody(endpoint, config, prompt)), signal, cache: 'no-store',
   });
   await assertResponse(response);
-  if (!response.body) throw new Error('端点未提供响应流。');
+  if (!response.body) throw new LocalizedError('error.noStream');
   yield* parseStream(endpoint.protocol, response.body);
 }
 
@@ -149,7 +143,7 @@ export async function discoverModels(endpoint: EndpointConfig): Promise<string[]
   await assertResponse(response);
   const data = await response.json();
   const list = endpoint.protocol === 'ollama' ? data.models?.map((m: any) => m.name) : data.data?.map((m: any) => m.id);
-  if (!Array.isArray(list)) throw new Error('端点返回的模型列表格式不正确；可手动填写模型名称。');
+  if (!Array.isArray(list)) throw new LocalizedError('error.modelListFormat');
   return list.filter((model): model is string => typeof model === 'string');
 }
 

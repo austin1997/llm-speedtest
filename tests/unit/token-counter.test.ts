@@ -50,15 +50,15 @@ describe('token count adapters', () => {
   it('rejects invalid counters, framing on raw endpoints and cross-origin credentials', async () => {
     expect(await detectTokenCounter(openai, new AbortController().signal, (async () => json({}, 404)) as typeof fetch)).toBeNull();
     expect(await detectTokenCounter(openai, new AbortController().signal, (async () => json({ count: 1 })) as typeof fetch)).toBeNull();
-    await expect(countText(openai, raw, 'x', new AbortController().signal, (async () => json({ count: -1 })) as typeof fetch)).rejects.toThrow('有效 token');
+    await expect(countText(openai, raw, 'x', new AbortController().signal, (async () => json({ count: -1 })) as typeof fetch)).rejects.toMatchObject({ msg: { key: 'error.counter.invalid' } });
     const fetcher = vi.fn();
-    await expect(countText(openai, { ...raw, url: 'https://different.example/tokenize' }, 'x', new AbortController().signal, fetcher as unknown as typeof fetch)).rejects.toThrow('同源');
+    await expect(countText(openai, { ...raw, url: 'https://different.example/tokenize' }, 'x', new AbortController().signal, fetcher as unknown as typeof fetch)).rejects.toMatchObject({ msg: { key: 'error.counter.origin' } });
     expect(fetcher).not.toHaveBeenCalled();
   });
   it('times out auxiliary requests and propagates cancellation', async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn((_url: any, init: any) => new Promise<Response>((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))) as unknown as typeof fetch;
-    const timeout = expect(countText(openai, raw, 'x', new AbortController().signal, fetcher)).rejects.toThrow('超时');
+    const timeout = expect(countText(openai, raw, 'x', new AbortController().signal, fetcher)).rejects.toMatchObject({ msg: { key: 'error.counter.timeout' } });
     await vi.advanceTimersByTimeAsync(1200); await timeout;
     const controller = new AbortController();
     const cancelled = expect(countText(openai, raw, 'x', controller.signal, fetcher)).rejects.toMatchObject({ name: 'AbortError' });

@@ -1,9 +1,10 @@
+import { LocalizedError } from '../i18n/message';
 import { endpointUrl } from './protocol';
 import type { EndpointConfig, TokenCounterCapability } from './types';
 
 const aborted = () => new DOMException('Aborted', 'AbortError');
 export const counterSource = (counter: TokenCounterCapability) => counter.kind === 'responses' ? 'calibrated' as const : 'counted' as const;
-export const counterLabel = (counter: TokenCounterCapability) => counter.kind === 'responses' ? '输入 API 差值校准' : '端点原文本分词';
+export const counterLabelKey = (counter: TokenCounterCapability) => counter.kind === 'responses' ? 'counter.responses' as const : 'counter.tokenize' as const;
 
 export function tokenCounterUrls(endpoint: EndpointConfig) {
   const base = new URL(endpointUrl(endpoint, 'chat'));
@@ -16,7 +17,7 @@ export function tokenCounterUrls(endpoint: EndpointConfig) {
 
 export async function countText(endpoint: EndpointConfig, counter: TokenCounterCapability, text: string, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<number> {
   if (signal.aborted) throw aborted();
-  if (new URL(counter.url).origin !== new URL(endpointUrl(endpoint, 'chat')).origin) throw new Error('计数接口必须与推理端点同源。');
+  if (new URL(counter.url).origin !== new URL(endpointUrl(endpoint, 'chat')).origin) throw new LocalizedError('error.counter.origin');
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal.addEventListener('abort', cancel, { once: true });
@@ -27,14 +28,14 @@ export async function countText(endpoint: EndpointConfig, counter: TokenCounterC
     : { model: endpoint.model.trim(), input: [{ role: 'assistant', content: text }] };
   try {
     const response = await fetcher(counter.url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(endpoint.apiKey.trim() ? { Authorization: `Bearer ${endpoint.apiKey.trim()}` } : {}) }, body: JSON.stringify(body), signal: controller.signal, cache: 'no-store' });
-    if (!response.ok) throw new Error(`计数 API HTTP ${response.status}`);
+    if (!response.ok) throw new LocalizedError('error.counter.http', { status: response.status });
     const data = await response.json();
-    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('计数 API 响应格式不正确。');
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new LocalizedError('error.counter.format');
     const count = counter.kind === 'responses' ? data.input_tokens : data.count ?? (Array.isArray(data.tokens) ? data.tokens.length : undefined);
-    if (!Number.isSafeInteger(count) || count < 0) throw new Error('计数 API 未返回有效 token 数。');
+    if (!Number.isSafeInteger(count) || count < 0) throw new LocalizedError('error.counter.invalid');
     return Math.max(0, count - counter.baseline);
   } catch (error) {
-    if (timedOut) throw new Error('计数 API 超时，已回退估算。');
+    if (timedOut) throw new LocalizedError('error.counter.timeout');
     throw error;
   } finally { clearTimeout(timeout); signal.removeEventListener('abort', cancel); }
 }
@@ -137,7 +138,7 @@ export class LiveTokenCounter {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
     if (snapshot.text !== this.countedText) this.desired = snapshot;
     let expired = false;
-    const timeout = setTimeout(() => { expired = true; this.onError(new Error('最终文本计数超时，已回退估算。')); this.stop(); }, 1500);
+    const timeout = setTimeout(() => { expired = true; this.onError(new LocalizedError('error.counter.finalTimeout')); this.stop(); }, 1500);
     try {
       while (!this.closed && (this.operation || this.desired)) {
         if (!this.operation) this.operation = this.execute();

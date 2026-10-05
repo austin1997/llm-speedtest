@@ -1,3 +1,5 @@
+import type { Msg } from '../i18n/types';
+
 export type Protocol = 'ollama' | 'openai';
 export type Thinking = 'default' | 'on' | 'off';
 export type Source = 'reported' | 'measured' | 'estimated' | 'counted' | 'calibrated';
@@ -62,11 +64,11 @@ export interface RequestResult {
   countedEstimate?: number;
   tokenScale?: number;
   tokenCounting?: 'active' | 'finalizing' | 'done' | 'failed';
-  tokenCountError?: string;
+  tokenCountError?: Msg;
   usage?: Usage;
   timing?: ServerTiming;
   finishReason?: string;
-  error?: string;
+  error?: Msg;
 }
 
 export interface RunState {

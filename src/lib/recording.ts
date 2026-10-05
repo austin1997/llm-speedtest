@@ -1,3 +1,5 @@
+import { FALLBACK_LOCALE } from '../i18n/locales';
+import { renderMessage } from '../i18n/translate';
 import { endpointMetrics } from './metrics';
 import type { EndpointConfig, RunState, Source } from './types';
 import { RECORD_SCHEMA, RECORD_VERSION, type EndpointOptions, type EndpointRecord, type RunRecord } from '../../shared/run-record';
@@ -40,6 +42,8 @@ function options(endpoint: EndpointConfig): EndpointOptions {
   };
 }
 
+const sampleError = (error: RunState['requests'][number]['error']) => error ? renderMessage(FALLBACK_LOCALE, error).slice(0, 256) : null;
+
 function endpointRecord(run: RunState, endpoint: EndpointConfig): EndpointRecord {
   const metric = endpointMetrics(run, endpoint.id);
   const source: Source = metric.overall.source;
@@ -72,7 +76,8 @@ function endpointRecord(run: RunState, endpoint: EndpointConfig): EndpointRecord
       serverDecodeMean: finite(metric.serverDecode.mean),
       serverPrefillMean: finite(metric.prefill.mean),
       loadMeanMs: finite(metric.load.mean),
-      errorSample: metric.requests.find(request => request.error)?.error?.slice(0, 256) ?? null,
+      // Stored data stays in one language regardless of the interface language of the submitting browser.
+      errorSample: sampleError(metric.requests.find(request => request.error)?.error),
     },
   };
 }
