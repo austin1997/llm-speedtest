@@ -1,6 +1,12 @@
 import type { Catalog } from '../types';
 
 export const es: Catalog = {
+  "media.videoLoading": "Cargando vídeo…",
+  "media.videoFetching": "Generación completada, cargando vídeo…",
+  "media.progress": "Progreso de generación",
+  "media.progressPending": "Esperando el progreso del servidor",
+  "media.previewFailed": "Error al cargar el vídeo",
+
   "media.requestLatency": "Latencia de finalización",
   "media.mode": "Modo de prueba",
   "media.mode.language": "Modelos de lenguaje",

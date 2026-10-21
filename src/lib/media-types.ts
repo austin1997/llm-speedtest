@@ -21,6 +21,7 @@ export interface MediaRequest {
   endpointId: 'A' | 'B';
   status: Status;
   jobStatus?: 'queued' | 'in_progress';
+  progress?: number;
   jobId?: string;
   startedAt: number | null;
   endedAt: number | null;

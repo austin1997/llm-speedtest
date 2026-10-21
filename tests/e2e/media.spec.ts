@@ -99,9 +99,10 @@ test('polls video, preserves generation success on download failure and retries 
   await configure(page, 'A', '/media-retry');
   await page.getByLabel('视频时长数值').fill('3');
   await page.getByLabel('开始测试', { exact: true }).click();
-  await expect(page.getByTestId('media-output')).toContainText('排队中');
+  await expect(page.getByTestId('media-output')).toContainText('视频加载中');
   await expect(page.getByRole('button', { name: '再次测试' })).toBeVisible();
-  await expect(page.locator('.media-results')).toContainText('RTF');
+  await expect(page.locator('.media-results')).toHaveCount(0);
+  await expect(page.locator('.media-monitor')).toContainText('RTF');
   await expect(page.getByRole('button', { name: '重新下载' })).toBeVisible();
   await expect(page.getByTestId('media-output')).toHaveClass(/status-success/);
   await page.getByRole('button', { name: '重新下载' }).click();
@@ -116,6 +117,52 @@ test('polls video, preserves generation success on download failure and retries 
   expect(requests.filter((req: any) => req.url.endsWith('/content'))).toHaveLength(2);
   expect(requests.every((req: any) => req.hasAuth)).toBe(true);
   await page.screenshot({ path: 'test-results/media-video-results.png', fullPage: true });
+});
+
+test('video A/B keeps one layout, reports independent progress and replaces each loader in place', async ({ page, request }) => {
+  await page.getByLabel('测速模式').selectOption('video');
+  await configure(page, 'A');
+  await page.getByRole('button', { name: 'A/B 对比' }).click();
+  await configure(page, 'B', '/media-progress-slow');
+  await page.getByLabel('开始测试', { exact: true }).click();
+  const a = page.locator('.media-monitor.endpoint-A');
+  const b = page.locator('.media-monitor.endpoint-B');
+  await expect(page.locator('.video-loading-active')).toHaveCount(2);
+  await expect(page.locator('.media-monitors')).not.toContainText('排队中');
+  await expect(page.locator('.media-results')).toHaveCount(0);
+  const frameHeight = (await a.locator('.video-frame').boundingBox())!.height;
+  await expect.poll(async () => Number(await b.getByRole('progressbar').getAttribute('value'))).toBeGreaterThan(0);
+  await expect(a.locator('video')).toBeVisible();
+  await a.locator('video').evaluate(video => video.setAttribute('data-persisted', 'yes'));
+  await expect(b.locator('.video-loading-active')).toBeVisible();
+  await expect(b.locator('header')).toContainText(/\d+%/);
+  expect(Number(await b.getByRole('progressbar').getAttribute('value'))).toBeLessThan(100);
+  await expect(page.getByRole('button', { name: '停止测试' })).toBeVisible();
+  expect((await a.locator('.video-frame').boundingBox())!.height).toBeCloseTo(frameHeight, 0);
+  await page.screenshot({ path: 'test-results/video-ab-progress.png', fullPage: true });
+  await expect(page.getByRole('button', { name: '再次测试' })).toBeVisible();
+  await expect(b.locator('video')).toBeVisible();
+  await expect(a.locator('video')).toHaveAttribute('data-persisted', 'yes');
+  await expect(page.locator('.video-loading-active')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '本轮结果', exact: true })).toHaveCount(0);
+  await expect(page.locator('.media-results')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: '下载', exact: true })).toHaveCount(2);
+  const calls = await (await request.get(`${server}/test/requests`)).json();
+  const statuses = calls.filter((req: any) => req.method === 'GET' && !req.url.endsWith('/content'));
+  expect(statuses.filter((req: any) => req.url.startsWith('/media-progress-slow'))).toHaveLength(6);
+  expect(statuses.filter((req: any) => !req.url.startsWith('/media-progress-slow'))).toHaveLength(2);
+  await page.screenshot({ path: 'test-results/video-ab-complete.png', fullPage: true });
+});
+
+test('video loading stays indeterminate when the endpoint omits progress', async ({ page }) => {
+  await page.getByLabel('测速模式').selectOption('video');
+  await configure(page, 'A', '/media-no-progress');
+  await page.getByLabel('开始测试', { exact: true }).click();
+  await expect(page.getByTestId('video-loading')).toContainText('等待服务端进度');
+  await expect(page.getByRole('progressbar')).not.toHaveAttribute('value');
+  await expect(page.getByTestId('video-loading')).not.toContainText('%');
+  await expect(page.locator('video')).toBeVisible();
+  await expect(page.locator('.media-results')).toHaveCount(0);
 });
 
 test('migrates stored media defaults and sends a matching aspect ratio for custom video dimensions', async ({ page, request }) => {
@@ -153,9 +200,11 @@ test('cancels video jobs and reports generation failures', async ({ page, reques
   await page.getByLabel('测速模式').selectOption('video');
   await configure(page, 'A', '/media-slow');
   await page.getByLabel('开始测试', { exact: true }).click();
-  await expect(page.getByTestId('media-output')).toContainText('排队中');
+  await expect(page.getByTestId('media-output')).toContainText('视频加载中');
   await page.getByRole('button', { name: '停止测试' }).click();
   await expect(page.getByTestId('media-output')).toHaveClass(/status-cancelled/);
+  await expect(page.locator('.video-loading-active')).toHaveCount(0);
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
   await expect.poll(async () => (await (await request.get(`${server}/test/requests`)).json()).some((req: any) => req.method === 'DELETE')).toBe(true);
   await page.getByRole('button', { name: '再次测试' }).click();
   if (!(await page.getByLabel('端点 A 地址', { exact: true }).isVisible())) await page.getByLabel('编辑端点 A', { exact: true }).click();

@@ -1,6 +1,12 @@
 import type { Catalog } from '../types';
 
 export const ko: Catalog = {
+  "media.videoLoading": "동영상 로딩 중…",
+  "media.videoFetching": "생성 완료, 동영상 로딩 중…",
+  "media.progress": "생성 진행률",
+  "media.progressPending": "서버 진행률 대기 중",
+  "media.previewFailed": "동영상 로딩 실패",
+
   "media.requestLatency": "완료 시간",
   "media.mode": "측정 모드",
   "media.mode.language": "언어 모델",

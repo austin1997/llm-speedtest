@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultMediaSettings, resolutions, restoreMediaSettings, serializeMediaSettings } from '../../src/lib/media-config';
-import { aspectRatio, fetchMediaAsset, imageBody, imageAsset, mediaUrl, videoBody } from '../../src/lib/media-protocol';
+import { aspectRatio, fetchMediaAsset, imageBody, imageAsset, mediaUrl, videoBody, videoProgress } from '../../src/lib/media-protocol';
 import { mediaMetrics, startMediaBenchmark, videoRtf } from '../../src/lib/media-benchmark';
 import type { MediaRun } from '../../src/lib/media-types';
 
@@ -30,6 +30,12 @@ describe('media protocol', () => {
   it.each([[1280, 720, '16:9'], [720, 1280, '9:16'], [640, 480, '4:3'], [1024, 1024, '1:1'], [896, 512, '7:4']] as const)('derives aspect ratio from %s × %s', (width, height, ratio) => {
     expect(aspectRatio(width, height)).toBe(ratio);
     expect(JSON.parse(String(videoBody({ ...video, width, height }, endpoint).get('extra_params')))).toEqual({ aspect_ratio: ratio });
+  });
+  it('uses only valid server percentages and treats completed jobs as 100 percent', () => {
+    for (const progress of [0, .5, 37, 100]) expect(videoProgress({ status: 'in_progress', progress })).toBe(progress);
+    for (const progress of [undefined, null, '50', -1, 101, NaN, Infinity, {}]) expect(videoProgress({ status: 'in_progress', progress })).toBeUndefined();
+    expect(videoProgress({ status: 'completed' })).toBe(100);
+    expect(videoProgress({ status: 'completed', progress: 0 })).toBe(100);
   });
   it('validates Base64 and URL assets', () => {
     expect(imageAsset(image, endpoint.baseUrl).base64).toBe(image.data[0].b64_json);
@@ -64,17 +70,33 @@ describe('media execution', () => {
   it('polls queue and running states, stopping measurement before content download', async () => {
     vi.useFakeTimers();
     const states: string[] = [];
+    const progressUpdates: (number | undefined)[] = [];
     let now = 0;
-    const fetcher = vi.fn().mockResolvedValueOnce(response({ id: 'job', status: 'queued' }))
-      .mockResolvedValueOnce(response({ id: 'job', status: 'in_progress' }))
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ id: 'job', status: 'queued', progress: 0 }))
+      .mockResolvedValueOnce(response({ id: 'job', status: 'in_progress', progress: 35 }))
       .mockImplementationOnce(async () => { now = 2500; return response({ id: 'job', status: 'completed', inference_time_s: 1.2 }); });
-    const run = startMediaBenchmark(video, [endpoint], state => { states.push(state.requests[0].jobStatus ?? ''); }, { fetcher, clock: () => now });
+    const run = startMediaBenchmark(video, [endpoint], state => { states.push(state.requests[0].jobStatus ?? ''); progressUpdates.push(state.requests[0].progress); }, { fetcher, clock: () => now });
     await vi.advanceTimersByTimeAsync(2000);
     const result = await run.finished;
     expect(states).toContain('queued'); expect(states).toContain('in_progress');
+    expect(progressUpdates).toContain(0); expect(progressUpdates).toContain(35); expect(progressUpdates.at(-1)).toBe(100);
     expect(result.requests[0]).toMatchObject({ status: 'success', endedAt: 2500, inferenceSeconds: 1.2, asset: { url: 'http://localhost:8000/v1/videos/job/content' } });
     expect(fetcher).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(5000); expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it('keeps polling when progress reaches 100 but the job is still running', async () => {
+    vi.useFakeTimers();
+    let latest!: MediaRun;
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ id: 'job', status: 'in_progress', progress: 100 }))
+      .mockResolvedValueOnce(response({ id: 'job', status: 'in_progress' }))
+      .mockResolvedValueOnce(response({ id: 'job', status: 'completed' }));
+    const run = startMediaBenchmark(video, [endpoint], state => { latest = state; }, { fetcher });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(latest.phase).toBe('running'); expect(latest.requests[0].progress).toBe(100);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(latest.phase).toBe('running'); expect(latest.requests[0].progress).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await run.finished).requests[0]).toMatchObject({ status: 'success', progress: 100 });
   });
   it('isolates failed requests without retrying generation', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(response({ detail: 'bad dimensions' }, 422)).mockResolvedValueOnce(response(image));
@@ -132,6 +154,8 @@ describe('media execution', () => {
     const run = startMediaBenchmark(video, [endpoint, { ...endpoint, id: 'B' }], state => { latest = state; }, { fetcher, clock: () => now });
     now = 2000; callbacks[0](response({ id: 'done', status: 'completed' }));
     await vi.waitFor(() => expect(latest.requests[0].status).toBe('success'));
+    expect(latest.phase).toBe('running');
+    expect(latest.requests[1].status).toBe('running');
     now = 4000; callbacks[1](response({ detail: 'overloaded' }, 503));
     const result = await run.finished;
     expect(mediaMetrics(result, 'A')).toMatchObject({ success: 1, failed: 0, successRate: 100, mean: 2000, min: 2000, max: 2000, throughput: 30 });

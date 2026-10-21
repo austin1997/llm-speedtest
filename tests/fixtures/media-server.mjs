@@ -22,7 +22,7 @@ export async function handleMedia(req, res, requests) {
     } else {
       const id = `fixture-${++sequence}`;
       jobs.set(id, { path, polls: 0, downloads: 0, auth: Boolean(req.headers.authorization) });
-      json({ id, status: 'queued' });
+      json({ id, status: 'queued', ...(!path.startsWith('/media-no-progress') ? { progress: 0 } : {}) });
     }
     return true;
   }
@@ -39,6 +39,9 @@ export async function handleMedia(req, res, requests) {
     res.setHeader('Content-Type', 'video/mp4'); res.end(video); return true;
   }
   job.polls++;
-  json({ id, status: path.startsWith('/media-failed') ? 'failed' : job.polls < 2 || path.startsWith('/media-slow') ? 'in_progress' : 'completed', ...(path.startsWith('/media-failed') ? { error: { message: 'fixture generation failed' } } : { inference_time_s: .75 }) });
+  const requiredPolls = path.startsWith('/media-progress-slow') ? 6 : 2;
+  const status = path.startsWith('/media-failed') ? 'failed' : job.polls < requiredPolls || path.startsWith('/media-slow') ? 'in_progress' : 'completed';
+  const progress = status === 'completed' ? 100 : Math.min(95, job.polls * (requiredPolls === 6 ? 15 : 50));
+  json({ id, status, ...(!path.startsWith('/media-no-progress') ? { progress } : {}), ...(path.startsWith('/media-failed') ? { error: { message: 'fixture generation failed' } } : { inference_time_s: .75 }) });
   return true;
 }

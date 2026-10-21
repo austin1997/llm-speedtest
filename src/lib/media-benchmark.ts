@@ -1,5 +1,5 @@
 import { describeError, LocalizedError, msg } from '../i18n/message';
-import { errorDetail, imageAsset, imageBody, inferenceSeconds, mediaHeaders, mediaJson, mediaUrl, videoBody } from './media-protocol';
+import { errorDetail, imageAsset, imageBody, inferenceSeconds, mediaHeaders, mediaJson, mediaUrl, videoBody, videoProgress } from './media-protocol';
 import { validateMediaConfig } from './media-config';
 import type { EndpointConfig } from './types';
 import type { MediaConfig, MediaRequest, MediaRun } from './media-types';
@@ -58,6 +58,7 @@ export function startMediaBenchmark(config: MediaConfig, endpoints: EndpointConf
         request.jobId = body.id;
         while (true) {
           signal.throwIfAborted();
+          request.progress = videoProgress(body);
           if (body.status === 'completed') {
             request.asset = { url: mediaUrl(endpoint.baseUrl, 'videos', request.jobId, true), mime: 'video/mp4' };
             request.inferenceSeconds = inferenceSeconds(body);

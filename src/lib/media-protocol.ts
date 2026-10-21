@@ -70,6 +70,12 @@ export function inferenceSeconds(body: Record<string, any>): number | undefined 
   const value = body.inference_time_s;
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
+/** Videos API reports a percentage, not a fraction or a client-side estimate. */
+export function videoProgress(body: Record<string, unknown>): number | undefined {
+  if (body.status === 'completed') return 100;
+  const value = body.progress;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : undefined;
+}
 export async function fetchMediaAsset(asset: MediaAsset, endpoint: EndpointConfig, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<Blob> {
   if (asset.base64) {
     const bytes = Uint8Array.from(atob(asset.base64), character => character.charCodeAt(0));

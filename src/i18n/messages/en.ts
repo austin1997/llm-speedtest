@@ -3,6 +3,12 @@
  * message selected by the `count` parameter. Other locales must provide the same keys and placeholders.
  */
 export const en = {
+  "media.videoLoading": "Loading video…",
+  "media.videoFetching": "Generation complete, loading video…",
+  "media.progress": "Generation progress",
+  "media.progressPending": "Waiting for server progress",
+  "media.previewFailed": "Video loading failed",
+
   "media.requestLatency": "Completion latency",
   "media.mode": "Benchmark mode",
   "media.mode.language": "Language models",

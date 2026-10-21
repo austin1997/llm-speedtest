@@ -1,6 +1,12 @@
 import type { Catalog } from '../types';
 
 export const ja: Catalog = {
+  "media.videoLoading": "動画を読み込み中…",
+  "media.videoFetching": "生成完了。動画を読み込み中…",
+  "media.progress": "生成の進捗",
+  "media.progressPending": "サーバーの進捗を待っています",
+  "media.previewFailed": "動画の読み込みに失敗しました",
+
   "media.requestLatency": "完了時間",
   "media.mode": "測定モード",
   "media.mode.language": "言語モデル",

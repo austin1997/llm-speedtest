@@ -13,11 +13,24 @@ import type { EndpointConfig } from './lib/types';
 
 type PreviewInfo = { duration?: number; downloadMs?: number };
 
-function MediaOutput({ request, endpoint, mode, now, onInfo }: {
-  request: MediaRequest; endpoint: EndpointConfig; mode: MediaMode; now: number;
+function VideoLoading({ request, busy, failed }: { request: MediaRequest; busy: boolean; failed: boolean }) {
+  const { t, n } = useI18n();
+  return <div className={`video-loading ${busy ? 'video-loading-active' : ''}`} data-testid="video-loading">
+    <div className="video-loading-icon" aria-hidden="true"><Video size={34} />{busy && <LoaderCircle className="spin" size={64} />}</div>
+    <p role="status">{busy ? t(request.asset ? 'media.videoFetching' : 'media.videoLoading') : t(failed ? 'media.previewFailed' : `status.${request.status}`)}</p>
+    {busy && <div className="video-progress">
+      <div><span>{t('media.progress')}</span><strong>{request.progress === undefined ? '—' : `${n(request.progress, 0)}%`}</strong></div>
+      <progress aria-label={t('media.progress')} max={100} value={request.progress} />
+      <small>{t(request.progress === undefined ? 'media.progressPending' : 'source.reported')}</small>
+    </div>}
+  </div>;
+}
+
+function MediaOutput({ request, endpoint, mode, now, onInfo, ratio }: {
+  request: MediaRequest; endpoint: EndpointConfig; mode: MediaMode; now: number; ratio: number;
   onInfo: (id: string, info: PreviewInfo) => void;
 }) {
-  const { t, tMsg, time } = useI18n();
+  const { t, tMsg, time, n } = useI18n();
   const [url, setUrl] = useState('');
   const [error, setError] = useState<Msg | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -43,38 +56,40 @@ function MediaOutput({ request, endpoint, mode, now, onInfo }: {
     }).finally(() => clearTimeout(timeout));
     return () => { clearTimeout(timeout); controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [request.asset, request.id, endpoint, attempt, onInfo, mode]);
-  const status = request.status === 'running' ? t(request.jobStatus === 'queued' ? 'media.queued' : 'media.generating') : t(`status.${request.status}`);
-  return <article className={`media-output status-${request.status}`} data-testid="media-output">
-    <header><strong>{request.id}</strong><span>{status}</span><span>{request.startedAt === null ? '—' : time((request.endedAt ?? now) - request.startedAt)}</span></header>
-    {url ? <>
-      {mode === 'image' ? <img src={url} alt={t('media.output')} onError={() => setError(msg('media.invalidResponse'))} /> : <video src={url} controls preload="metadata" onError={() => setError(msg('media.playbackError'))} onLoadedMetadata={event => {
+  const busy = !error && (request.status === 'pending' || request.status === 'running' || (request.status === 'success' && !url));
+  const status = mode === 'video' && busy ? t('media.videoLoading') : request.status === 'running' ? t('media.generating') : t(`status.${request.status}`);
+  return <article className={`media-output ${mode === 'video' ? 'video-output' : ''} status-${request.status}`} data-testid="media-output">
+    <header><strong>{request.id}</strong><span>{status}{mode === 'video' && busy && request.progress !== undefined ? ` · ${n(request.progress, 0)}%` : ''}</span><span>{request.startedAt === null ? '—' : time((request.endedAt ?? now) - request.startedAt)}</span></header>
+    {mode === 'video' ? <div className="video-frame" style={{ aspectRatio: ratio }}>
+      {url ? <video src={url} controls preload="metadata" onError={() => setError(msg('media.playbackError'))} onLoadedMetadata={event => {
         const duration = event.currentTarget.duration;
         if (Number.isFinite(duration) && duration > 0) onInfo(request.id, { duration, downloadMs });
-      }} />}
-      <footer><span>{t('media.downloadTime')}: {time(downloadMs ?? null)}</span><a className="primary-button" href={url} download={`${mode}-${request.id}.${extension}`}><Download size={14} />{t('media.download')}</a></footer>
-    </> : request.asset && !error ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{t('media.loading')}</p> : request.status === 'running' ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{status}</p> : null}
+      }} /> : <VideoLoading request={request} busy={busy} failed={!!error} />}
+    </div> : url ? <img src={url} alt={t('media.output')} onError={() => setError(msg('media.invalidResponse'))} /> : request.asset && !error ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{t('media.loading')}</p> : request.status === 'running' ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{status}</p> : null}
+    {(url || mode === 'video') && <footer>
+      <span>{t('media.downloadTime')}: {time(url ? downloadMs ?? null : null)}</span>
+      {url && <a className="primary-button" href={url} download={`${mode}-${request.id}.${extension}`}><Download size={14} />{t('media.download')}</a>}
+    </footer>}
     {request.error && <p className="request-error">{tMsg(request.error)}</p>}
     {error && <div className="request-error" role="alert">{tMsg(error)}{!url && <button className="primary-button" onClick={() => setAttempt(value => value + 1)}>{t('media.retryDownload')}</button>}</div>}
   </article>;
 }
 
-function MediaResults({ run, previews }: { run: MediaRun; previews: Record<string, PreviewInfo> }) {
+function ImageResults({ run }: { run: MediaRun }) {
   const { t, tMsg, n, time } = useI18n();
   const metrics = run.endpoints.map(endpoint => mediaMetrics(run, endpoint.id));
-  const rtfs = run.endpoints.map(endpoint => videoRtf(run, endpoint.id, previews));
-  const throughputUnit = t(run.config.mode === 'image' ? 'media.imagesPerSecond' : 'media.videosPerMinute');
+  const throughputUnit = t('media.imagesPerSecond');
   const rows = [
     { label: t('media.latency'), values: metrics.map(m => m.mean), format: time, lower: true },
     { label: t('media.minLatency'), values: metrics.map(m => m.min), format: time, lower: true },
     { label: t('media.maxLatency'), values: metrics.map(m => m.max), format: time, lower: true },
     { label: t('media.throughput'), values: metrics.map(m => m.throughput), format: (value: number | null) => `${n(value, 3)} ${throughputUnit}`, lower: false },
     { label: t('media.successRate'), values: metrics.map(m => m.successRate), format: (value: number | null) => `${n(value, 1)}%`, lower: false },
-    ...(run.config.mode === 'video' ? [{ label: 'RTF', values: rtfs.map(r => r.value), format: (value: number | null, i: number) => `${n(value, 3)} · ${t(rtfs[i].mixed ? 'result.decodeMixed' : rtfs[i].estimated ? 'source.estimated' : 'source.measured')}`, lower: true, comparable: rtfs.every(r => !r.mixed && r.estimated === rtfs[0].estimated) }] : []),
     { label: t('media.serverTime'), values: metrics.map(m => m.serverMean === null ? null : m.serverMean * 1000), format: time, lower: true },
   ];
-  function difference(values: (number | null)[], lower: boolean, comparable = true) {
+  function difference(values: (number | null)[], lower: boolean) {
     const [a, b] = values;
-    if (!comparable || a === null || b === null || a <= 0) return t('result.basisMismatch');
+    if (a === null || b === null || a <= 0) return t('result.basisMismatch');
     const delta = (b - a) / a * 100;
     const better = run.endpoints[(lower ? b < a : b > a) ? 1 : 0];
     return `${delta >= 0 ? '+' : ''}${n(delta, 1)}%${Math.abs(delta) < .05 ? '' : ` · ${t('result.better', { name: endpointName(better) })}`}`;
@@ -82,11 +97,11 @@ function MediaResults({ run, previews }: { run: MediaRun; previews: Record<strin
   return <section className="panel media-results" aria-label={t('result.title')}>
     <h2>{t('result.title')}</h2>
     <div className="table-scroll"><table><thead><tr><th>{t('result.metric')}</th>{run.endpoints.map(e => <th key={e.id}>{e.id} · {endpointName(e)}</th>)}{run.endpoints.length === 2 && <th>{t('result.relative', { a: 'A', b: 'B' })}</th>}</tr></thead><tbody>
-      {rows.map(row => <tr key={row.label}><th>{row.label}</th>{row.values.map((value, i) => <td key={i}>{row.format(value, i)}</td>)}{run.endpoints.length === 2 && <td>{difference(row.values, row.lower, 'comparable' in row ? row.comparable : true)}</td>}</tr>)}
+      {rows.map(row => <tr key={row.label}><th>{row.label}</th>{row.values.map((value, i) => <td key={i}>{row.format(value)}</td>)}{run.endpoints.length === 2 && <td>{difference(row.values, row.lower)}</td>}</tr>)}
       <tr><th>{t('media.counts')}</th>{metrics.map((m, i) => <td key={i}>{m.success} / {m.failed} / {m.cancelled}</td>)}{run.endpoints.length === 2 && <td>—</td>}</tr>
     </tbody></table></div>
-    <details className="output-details"><summary>{t('media.requests')}<ChevronDown size={14} /></summary><div className="table-scroll"><table><thead><tr><th>ID</th><th>{t('media.state')}</th><th>{t('media.requestLatency')}</th>{run.config.mode === 'video' && <th>RTF</th>}<th>{t('media.error')}</th></tr></thead><tbody>
-      {run.requests.map(request => <tr key={request.id}><td>{request.id}</td><td>{t(`status.${request.status}`)}</td><td>{request.startedAt !== null && request.endedAt !== null ? time(request.endedAt - request.startedAt) : '—'}</td>{run.config.mode === 'video' && <td>{request.status === 'success' ? `${n((request.endedAt! - request.startedAt!) / 1000 / (previews[request.id]?.duration ?? run.config.seconds), 3)} · ${t(previews[request.id]?.duration ? 'source.measured' : 'source.estimated')}` : '—'}</td>}<td>{request.error ? tMsg(request.error) : '—'}</td></tr>)}
+    <details className="output-details"><summary>{t('media.requests')}<ChevronDown size={14} /></summary><div className="table-scroll"><table><thead><tr><th>ID</th><th>{t('media.state')}</th><th>{t('media.requestLatency')}</th><th>{t('media.error')}</th></tr></thead><tbody>
+      {run.requests.map(request => <tr key={request.id}><td>{request.id}</td><td>{t(`status.${request.status}`)}</td><td>{request.startedAt !== null && request.endedAt !== null ? time(request.endedAt - request.startedAt) : '—'}</td><td>{request.error ? tMsg(request.error) : '—'}</td></tr>)}
     </tbody></table></div></details>
   </section>;
 }
@@ -159,14 +174,15 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
     </> : <>
       <div className="run-config-strip"><span>{run.config.width} × {run.config.height}</span><span>{t('media.steps')}: {run.config.steps}</span>{mode === 'video' && <span>{run.config.seconds}s · {run.config.fps} FPS · {aspectRatio(run.config.width, run.config.height)}</span>}{run.config.seed !== null && <span>{t('media.seed')}: {run.config.seed}</span>}<span>{t('media.sessionOnly')}</span><span>{time(run.now - run.startedAt)}</span></div>
       <div className="media-run-content">
-        {phase === 2 && <MediaResults run={run} previews={previews} />}
+        {mode === 'image' && phase === 2 && <ImageResults run={run} />}
         <div className={`media-monitors ${run.endpoints.length === 2 ? 'comparison' : ''}`}>
           {run.endpoints.map(endpoint => {
             const metrics = mediaMetrics(run, endpoint.id);
+            const rtf = videoRtf(run, endpoint.id, previews);
             return <section className={`panel media-monitor endpoint-${endpoint.id}`} key={endpoint.id}><div className="panel-title"><span className="endpoint-marker">{endpoint.id}</span><h2>{endpointName(endpoint)}</h2></div>
-              <div className="media-stats"><div><span>{t('media.throughput')}</span><strong>{n(metrics.throughput, 3)}</strong><small>{t(mode === 'image' ? 'media.imagesPerSecond' : 'media.videosPerMinute')}</small></div><div><span>{t('media.successRate')}</span><strong>{n(metrics.successRate, 1)}%</strong><small>{metrics.success} / {metrics.count}</small></div><div><span>{t('media.latency')}</span><strong>{time(metrics.mean)}</strong><small>{t('source.measured')}</small></div></div>
+              <div className="media-stats"><div><span>{t('media.throughput')}</span><strong>{n(metrics.throughput, 3)}</strong><small>{t(mode === 'image' ? 'media.imagesPerSecond' : 'media.videosPerMinute')}</small></div><div><span>{t('media.successRate')}</span><strong>{n(metrics.successRate, 1)}%</strong><small>{metrics.success} / {metrics.count}</small></div><div><span>{t('media.latency')}</span><strong>{time(metrics.mean)}</strong><small>{t('source.measured')}</small></div>{mode === 'video' && <><div><span>RTF</span><strong>{n(rtf.value, 3)}</strong><small>{rtf.value === null ? '—' : t(rtf.estimated ? 'source.estimated' : 'source.measured')}</small></div><div><span>{t('media.serverTime')}</span><strong>{time(metrics.serverMean === null ? null : metrics.serverMean * 1000)}</strong><small>{t('source.reported')}</small></div></>}</div>
               <p className="hint">{t('media.trend')}</p><MediaTrend run={run} id={endpoint.id} />
-              <div className="media-outputs">{run.requests.filter(request => request.endpointId === endpoint.id).map(request => <MediaOutput key={request.id} request={request} endpoint={targets.current.find(e => e.id === endpoint.id)!} mode={mode} now={run.now} onInfo={onInfo} />)}</div>
+              <div className="media-outputs">{run.requests.filter(request => request.endpointId === endpoint.id).map(request => <MediaOutput key={request.id} request={request} endpoint={targets.current.find(e => e.id === endpoint.id)!} mode={mode} ratio={run.config.width / run.config.height} now={run.now} onInfo={onInfo} />)}</div>
             </section>;
           })}
         </div>

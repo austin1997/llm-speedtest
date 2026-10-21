@@ -1,6 +1,12 @@
 import type { Catalog } from '../types';
 
 export const zhTW: Catalog = {
+  "media.videoLoading": "影片載入中…",
+  "media.videoFetching": "生成完成，正在載入影片…",
+  "media.progress": "生成進度",
+  "media.progressPending": "等待伺服器進度",
+  "media.previewFailed": "影片載入失敗",
+
   "media.requestLatency": "完成耗時",
   "media.mode": "測速模式",
   "media.mode.language": "語言模型",
