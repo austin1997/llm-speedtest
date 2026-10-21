@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { handleMedia, resetMedia } from './media-server.mjs';
 
 let requests = [];
 let catchupRequests = 0;
@@ -6,13 +7,14 @@ let tokenRequests = [];
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   if (req.url === '/test/requests') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(requests)); return; }
   if (req.url === '/test/token-requests') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(tokenRequests)); return; }
-  if (req.url === '/test/reset') { requests = []; tokenRequests = []; catchupRequests = 0; res.end('ok'); return; }
+  if (req.url === '/test/reset') { resetMedia(); requests = []; tokenRequests = []; catchupRequests = 0; res.end('ok'); return; }
   if (req.url.endsWith('/api/tags')) { res.end(JSON.stringify({ models: [{ name: 'test-qwen' }] })); return; }
   if (req.url.endsWith('/v1/models')) { res.end(JSON.stringify({ data: [{ id: 'test-qwen' }] })); return; }
+  if (await handleMedia(req, res, requests)) return;
   let raw = ''; for await (const chunk of req) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};
   const counterRoute = req.url === '/token-api/tokenize' || req.url === '/token-preflight/tokenize' || req.url === '/token-fail/tokenize' || req.url === '/token-delay/tokenize' || req.url === '/token-llama/tokenize' || req.url === '/token-versioned/v1/tokenize' || req.url === '/token-responses/v1/responses/input_tokens';

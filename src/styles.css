@@ -496,3 +496,57 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .9em; colo
   .race-readout small { font-size: .9em; color: var(--muted); }
 }
 @media (prefers-reduced-motion: reduce) { *, *:before, *:after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Media modes use the same shell, with an independently scrollable workspace. */
+.brand-group { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 100%; }
+select.mode-switch { width: auto; max-width: 150px; margin: 0; padding: 7px 8px; font-size: .75rem; }
+.media-prompt { width: 100%; flex: 1; min-height: 220px; resize: vertical; padding: 18px; background: var(--input); color: var(--text); border: 1px solid var(--border); border-radius: 9px; font: inherit; font-size: .9375rem; line-height: 1.8; }
+.media-prompt-summary { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; font: inherit; color: var(--secondary); }
+.media-resolution { padding-bottom: 18px; }
+.media-resolution strong { display: block; margin: 8px 0; color: var(--text); }
+.media-dimensions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.media-dimensions label + label { margin-top: 0; }
+.media-shell .media-workspace .parameter-grid { grid-template-rows: none; flex: none; gap: 14px; }
+.media-workspace .hint { max-width: 220px; text-align: center; }
+.media-monitors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.media-monitors.comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.media-monitor, .media-results { padding: 20px; margin-bottom: 18px; }
+.media-monitor h2 { overflow-wrap: anywhere; }
+.media-results h2 { font-size: 1rem; margin-bottom: 14px; }
+.media-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.media-stats > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.media-stats span, .media-stats small { color: var(--muted); font-size: .75rem; }
+.media-stats strong { color: var(--accent); font-size: clamp(1rem, 2vw, 1.8rem); overflow-wrap: anywhere; }
+.endpoint-B .media-stats strong { color: var(--accent-b); }
+.media-trend { width: 100%; height: 64px; display: block; margin-bottom: 18px; }
+.media-outputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.media-output { border: 1px solid var(--border); border-radius: 9px; min-width: 0; overflow: hidden; }
+.media-output header, .media-output footer { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px; color: var(--secondary); font-size: .75rem; }
+.media-output img, .media-output video { display: block; width: 100%; max-height: 320px; object-fit: contain; background: var(--input); }
+.media-output .primary-button { padding: 6px 10px; font-size: .75rem; }
+.media-placeholder { min-height: 160px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: .875rem; }
+.media-note { margin: 12px 0; line-height: 1.8; }
+@media (min-width: 1100px) and (min-height: 600px) {
+  .media-shell .main-content { overflow-y: auto; }
+  .media-shell .media-workspace { flex: none; min-height: 440px; align-items: stretch; }
+  .media-shell .media-workspace .preview-panel { min-height: 340px; }
+  .media-shell .endpoint-editor { position: static; width: auto; max-height: none; box-shadow: none; }
+  .media-shell .parameter-options .secondary-parameters { position: static; max-height: none; }
+  .media-shell .media-run-content { min-height: 0; overflow-y: auto; }
+  .media-shell .site-footer { margin-top: 14px; }
+  .viewport-shell .mode-switch { max-width: 125px; padding: 5px; }
+}
+@media (max-width: 1099px) {
+  .media-workspace { align-items: start; }
+  .media-monitors.comparison { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .brand-group { gap: 8px; }
+  .brand-group .brand { font-size: .9375rem; gap: 6px; }
+  .brand-group .brand-icon { width: 30px; height: 30px; }
+  select.mode-switch { max-width: 130px; }
+  .media-monitor, .media-results { padding: 14px; }
+  .media-workspace { display: flex; flex-direction: column; }
+  .media-workspace > * { width: 100%; }
+  .media-workspace .launch-area { order: 3; }
+}

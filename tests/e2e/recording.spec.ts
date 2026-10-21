@@ -17,6 +17,8 @@ async function configure(page: Page, key: string) {
 }
 
 test('records endpoint results and the source address, without repeating known dimensions', async ({ page }) => {
+  // Each database assertion starts Wrangler; allow those local CLI calls to finish in CI.
+  test.setTimeout(60000);
   const key = `e2e-key-${Date.now()}`;
   await page.goto('/');
   const toggle = page.getByRole('checkbox', { name: /记录结果/ });
