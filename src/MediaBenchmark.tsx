@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Clock3, Download, Image, Layers3, LoaderCircle, Plus, RotateCcw, Square, Video, Zap } from 'lucide-react';
+import { Check, ChevronDown, Clock3, Download, Image, LoaderCircle, Plus, RotateCcw, Square, Video, Zap } from 'lucide-react';
 import { EndpointCard, NumberInput, Slider } from './components/BenchmarkControls';
 import { useI18n } from './i18n/I18nProvider';
 import { describeError, msg } from './i18n/message';
@@ -7,7 +7,7 @@ import type { Msg } from './i18n/types';
 import { endpointName } from './lib/endpoint';
 import { mediaStorageKey, resolutions, restoreMediaSettings, serializeMediaSettings } from './lib/media-config';
 import { mediaMetrics, startMediaBenchmark, videoRtf } from './lib/media-benchmark';
-import { fetchMediaAsset } from './lib/media-protocol';
+import { aspectRatio, fetchMediaAsset } from './lib/media-protocol';
 import type { MediaConfig, MediaMode, MediaRequest, MediaRun } from './lib/media-types';
 import type { EndpointConfig } from './lib/types';
 
@@ -140,25 +140,24 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
           <textarea className="media-prompt" aria-label={t('media.prompt')} maxLength={10000} value={config.prompt} onChange={event => change({ prompt: event.target.value })} />
           <div className="preview-footer"><span>{t('media.sharedPrompt')}</span><span>{t('preview.chars', { count: config.prompt.length })}</span></div>
         </section>
-        <div className="launch-area"><button className="go-button" aria-label={t('launch.start')} onClick={begin}><span>GO</span><small>{t('launch.start')}</small></button><span className="launch-summary">{compare ? t('launch.compare', { count: 2 * config.concurrency }) : t('launch.single', { count: config.concurrency })}</span><p className="hint">{t('media.sessionOnly')}</p>{error && <p role="alert" className="error-text">{tMsg(error)}</p>}</div>
+        <div className="launch-area"><button className="go-button" aria-label={t('launch.start')} onClick={begin}><span>GO</span><small>{t('launch.start')}</small></button><span className="launch-summary">{compare ? t('launch.compare', { count: 2 }) : t('launch.single', { count: 1 })}</span><p className="hint">{t('media.sessionOnly')}</p>{error && <p role="alert" className="error-text">{tMsg(error)}</p>}</div>
         <section className="parameters-panel" aria-label={t('params.title')}><div className="panel-title"><h2>{t('params.title')}</h2></div>
-          <div className="media-resolution"><label>{t('media.resolution')}<strong>{config.width} × {config.height}{preset === -1 ? ` · ${t('media.custom')}` : ''}</strong><input type="range" className="range" aria-label={t('media.resolution')} min={0} max={resolutions[mode].length - 1} value={Math.max(0, preset)} style={{ '--range-fill': `${Math.max(0, preset) / (resolutions[mode].length - 1) * 100}%` } as React.CSSProperties} onChange={event => { const [width, height] = resolutions[mode][Number(event.target.value)]; change({ width, height }); }} /></label>
+          <div className="media-resolution"><label>{t('media.resolution')}<strong>{config.width} × {config.height} · {aspectRatio(config.width, config.height)}{preset === -1 ? ` · ${t('media.custom')}` : ''}</strong><input type="range" className="range" aria-label={t('media.resolution')} min={0} max={resolutions[mode].length - 1} value={Math.max(0, preset)} style={{ '--range-fill': `${Math.max(0, preset) / (resolutions[mode].length - 1) * 100}%` } as React.CSSProperties} onChange={event => { const [width, height] = resolutions[mode][Number(event.target.value)]; change({ width, height }); }} /></label>
           <div className="media-dimensions"><label>{t('media.width')}<NumberInput min={64} max={4096} step={1} value={config.width} onValue={value => change({ width: Math.round(value ?? 64) })} /></label><label>{t('media.height')}<NumberInput min={64} max={4096} step={1} value={config.height} onValue={value => change({ height: Math.round(value ?? 64) })} /></label></div></div>
           <div className="parameter-grid">
             {mode === 'video' && <Slider label={t('media.seconds')} value={config.seconds} min={1} max={30} unit="s" icon={<Clock3 size={15} />} onChange={seconds => change({ seconds })} />}
             <Slider label={t('media.steps')} value={config.steps} min={1} max={100} unit="" icon={<Zap size={15} />} onChange={steps => change({ steps })} />
-            <Slider label={t('params.concurrency')} value={config.concurrency} min={1} max={16} unit={t('unit.perEndpoint')} icon={<Layers3 size={15} />} onChange={concurrency => change({ concurrency })} />
           </div>
           <details className="parameter-options"><summary>{t('params.more')}<ChevronDown size={14} /></summary><div className="secondary-parameters">
             <label>{t('media.seed')}<NumberInput min={0} max={2147483647} value={config.seed} nullable placeholder={t('common.serverDefault')} onValue={seed => change({ seed: seed === null ? null : Math.round(seed) })} /></label>
-            {mode === 'video' && <label>FPS<NumberInput min={1} max={60} value={config.fps} onValue={fps => change({ fps: Math.round(fps ?? 16) })} /></label>}
+            {mode === 'video' && <label>FPS<NumberInput min={1} max={60} value={config.fps} onValue={fps => change({ fps: Math.round(fps ?? 24) })} /></label>}
             <label>{t('params.timeout')}<NumberInput aria-label={t('params.timeoutAria')} min={30} max={1800} value={config.timeoutSeconds} onValue={value => change({ timeoutSeconds: Math.round(value ?? 300) })} /></label>
           </div></details>
         </section>
       </div>
       <section className="endpoint-settings"><div className="endpoint-settings-heading"><h2>{t('endpoints.title')} · OpenAI Compatible (vLLM-Omni)</h2><button className={`compare-toggle ${compare ? 'enabled' : ''}`} aria-pressed={compare} onClick={() => setSettings(current => ({ ...current, compare: !current.compare }))}>{compare ? <Check size={14} /> : <Plus size={14} />}{t('compare.label')}</button></div><div className={`endpoint-stack ${compare ? 'two-endpoints' : ''}`}>{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard media key={endpoint.id} endpoint={endpoint} onChange={patch => setSettings(current => ({ ...current, endpoints: current.endpoints.map(e => e.id === endpoint.id ? { ...e, ...patch } : e) }))} />)}</div></section>
     </> : <>
-      <div className="run-config-strip"><span>{run.config.width} × {run.config.height}</span><span>{t('media.steps')}: {run.config.steps}</span>{mode === 'video' && <span>{run.config.seconds}s · {run.config.fps} FPS</span>}<span>{t('strip.concurrency', { count: run.config.concurrency })}</span>{run.config.seed !== null && <span>{t('media.seed')}: {run.config.seed}</span>}<span>{t('media.sessionOnly')}</span><span>{time(run.now - run.startedAt)}</span></div>
+      <div className="run-config-strip"><span>{run.config.width} × {run.config.height}</span><span>{t('media.steps')}: {run.config.steps}</span>{mode === 'video' && <span>{run.config.seconds}s · {run.config.fps} FPS · {aspectRatio(run.config.width, run.config.height)}</span>}{run.config.seed !== null && <span>{t('media.seed')}: {run.config.seed}</span>}<span>{t('media.sessionOnly')}</span><span>{time(run.now - run.startedAt)}</span></div>
       <div className="media-run-content">
         {phase === 2 && <MediaResults run={run} previews={previews} />}
         <div className={`media-monitors ${run.endpoints.length === 2 ? 'comparison' : ''}`}>

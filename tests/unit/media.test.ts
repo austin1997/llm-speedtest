@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defaultMediaSettings, restoreMediaSettings, serializeMediaSettings } from '../../src/lib/media-config';
-import { fetchMediaAsset, imageBody, imageAsset, mediaUrl, videoBody } from '../../src/lib/media-protocol';
+import { defaultMediaSettings, resolutions, restoreMediaSettings, serializeMediaSettings } from '../../src/lib/media-config';
+import { aspectRatio, fetchMediaAsset, imageBody, imageAsset, mediaUrl, videoBody } from '../../src/lib/media-protocol';
 import { mediaMetrics, startMediaBenchmark, videoRtf } from '../../src/lib/media-benchmark';
 import type { MediaRun } from '../../src/lib/media-types';
 
 const defaults = defaultMediaSettings('image', 'test prompt');
 const config = defaults.config;
 const endpoint = { ...defaults.endpoints[0], model: 'fixture', apiKey: 'memory-only' };
-const video = { ...config, mode: 'video' as const };
+const video = defaultMediaSettings('video', 'test prompt').config;
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const image = { data: [{ b64_json: btoa('fixture bytes') }], inference_time_s: 1.5 };
 afterEach(() => vi.useRealTimers());
@@ -24,8 +24,12 @@ describe('media protocol', () => {
     expect(mediaUrl(endpoint.baseUrl, 'videos', 'a/b', true)).toBe('http://localhost:8000/v1/videos/a%2Fb/content');
   });
   it('sends one image and top-level diffusion parameters; video uses FormData without frame conflicts', () => {
-    expect(imageBody({ ...config, seed: 0 }, endpoint)).toEqual({ model: 'fixture', prompt: 'test prompt', n: 1, size: '1024x1024', num_inference_steps: 20, seed: 0, response_format: 'b64_json' });
-    expect(Object.fromEntries(videoBody(video, endpoint))).toEqual({ model: 'fixture', prompt: 'test prompt', size: '1024x1024', seconds: '5', fps: '16', num_inference_steps: '20' });
+    expect(imageBody({ ...config, seed: 0 }, endpoint)).toEqual({ model: 'fixture', prompt: 'test prompt', n: 1, size: '1024x576', num_inference_steps: 20, seed: 0, response_format: 'b64_json' });
+    expect(Object.fromEntries(videoBody(video, endpoint))).toEqual({ model: 'fixture', prompt: 'test prompt', size: '1280x720', seconds: '5', fps: '24', num_inference_steps: '20', extra_params: JSON.stringify({ aspect_ratio: '16:9' }) });
+  });
+  it.each([[1280, 720, '16:9'], [720, 1280, '9:16'], [640, 480, '4:3'], [1024, 1024, '1:1'], [896, 512, '7:4']] as const)('derives aspect ratio from %s × %s', (width, height, ratio) => {
+    expect(aspectRatio(width, height)).toBe(ratio);
+    expect(JSON.parse(String(videoBody({ ...video, width, height }, endpoint).get('extra_params')))).toEqual({ aspect_ratio: ratio });
   });
   it('validates Base64 and URL assets', () => {
     expect(imageAsset(image, endpoint.baseUrl).base64).toBe(image.data[0].b64_json);
@@ -46,13 +50,14 @@ describe('media protocol', () => {
 });
 
 describe('media execution', () => {
-  it('launches A/B concurrency together with identical inputs, sanitizing result keys', async () => {
+  it('launches one request per endpoint with identical inputs, ignoring legacy concurrency', async () => {
     const bodies: unknown[] = [];
     const fetcher = vi.fn(async (_url: any, init: any) => { bodies.push(JSON.parse(init.body)); return response(image); });
-    const run = startMediaBenchmark({ ...config, concurrency: 2 }, [endpoint, { ...endpoint, id: 'B' }], () => {}, { fetcher });
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    const legacyConfig = { ...config, concurrency: 16 };
+    const run = startMediaBenchmark(legacyConfig, [endpoint, { ...endpoint, id: 'B' }], () => {}, { fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(2);
     const result = await run.finished;
-    expect(result.requests.map(r => r.status)).toEqual(['success', 'success', 'success', 'success']);
+    expect(result.requests.map(r => r.status)).toEqual(['success', 'success']);
     expect(new Set(bodies.map(body => JSON.stringify(body))).size).toBe(1);
     expect(result.endpoints.every(e => !e.apiKey)).toBe(true);
   });
@@ -73,7 +78,7 @@ describe('media execution', () => {
   });
   it('isolates failed requests without retrying generation', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(response({ detail: 'bad dimensions' }, 422)).mockResolvedValueOnce(response(image));
-    const result = await startMediaBenchmark({ ...config, concurrency: 2 }, [endpoint], () => {}, { fetcher }).finished;
+    const result = await startMediaBenchmark(config, [endpoint, { ...endpoint, id: 'B' }], () => {}, { fetcher }).finished;
     expect(result.requests.map(r => r.status)).toEqual(['error', 'success']);
     expect(result.requests[0].error?.params?.detail).toBe('bad dimensions');
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -119,17 +124,18 @@ describe('media execution', () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect((await run.finished).requests[0]).toMatchObject({ status: 'error', error: { key: 'error.timeout' } });
   });
-  it('measures successful latency while including failed requests in round throughput', async () => {
+  it('measures each endpoint independently and calculates video RTF', async () => {
     let now = 0;
     const callbacks: ((value: Response) => void)[] = [];
     const fetcher = vi.fn(() => new Promise<Response>(resolve => { callbacks.push(resolve); }));
     let latest!: MediaRun;
-    const run = startMediaBenchmark({ ...video, concurrency: 2 }, [endpoint], state => { latest = state; }, { fetcher, clock: () => now });
+    const run = startMediaBenchmark(video, [endpoint, { ...endpoint, id: 'B' }], state => { latest = state; }, { fetcher, clock: () => now });
     now = 2000; callbacks[0](response({ id: 'done', status: 'completed' }));
     await vi.waitFor(() => expect(latest.requests[0].status).toBe('success'));
     now = 4000; callbacks[1](response({ detail: 'overloaded' }, 503));
     const result = await run.finished;
-    expect(mediaMetrics(result, 'A')).toMatchObject({ success: 1, failed: 1, successRate: 50, mean: 2000, min: 2000, max: 2000, throughput: 15 });
+    expect(mediaMetrics(result, 'A')).toMatchObject({ success: 1, failed: 0, successRate: 100, mean: 2000, min: 2000, max: 2000, throughput: 30 });
+    expect(mediaMetrics(result, 'B')).toMatchObject({ success: 0, failed: 1, successRate: 0, mean: null, throughput: 0 });
     expect(videoRtf(result, 'A', {})).toEqual({ value: .4, estimated: true, mixed: false });
     expect(videoRtf(result, 'A', { 'A-1': { duration: 2 } })).toEqual({ value: 1, estimated: false, mixed: false });
     expect(videoRtf(result, 'A', { 'A-1': { duration: NaN } })).toMatchObject({ value: .4, estimated: true });
@@ -139,6 +145,30 @@ describe('media execution', () => {
 });
 
 describe('media configuration', () => {
+  it('uses only exact 16:9 presets and migrates the old image default', () => {
+    for (const mode of ['image', 'video'] as const) {
+      for (const [width, height] of resolutions[mode]) expect(width * 9).toBe(height * 16);
+      const { config } = defaultMediaSettings(mode, 'prompt');
+      expect(resolutions[mode]).toContainEqual([config.width, config.height]);
+    }
+    const old = { version: 1, config: { width: 1024, height: 1024, prompt: 'saved image' } };
+    expect(restoreMediaSettings('image', 'default', JSON.stringify(old)).config).toMatchObject({ width: 1024, height: 576, prompt: 'saved image' });
+    expect(restoreMediaSettings('image', 'default', JSON.stringify({ ...old, version: 2 })).config).toMatchObject({ width: 1024, height: 1024 });
+  });
+  it('migrates old video defaults and drops stale concurrency without resetting custom settings', () => {
+    const old = { version: 1, config: { ...video, width: 832, height: 480, fps: 16, concurrency: 8, prompt: 'saved', steps: 32 }, endpoints: [endpoint], compare: true };
+    const restored = restoreMediaSettings('video', 'default', JSON.stringify(old));
+    expect(restored.config).toMatchObject({ width: 1280, height: 720, fps: 24, prompt: 'saved', steps: 32 });
+    expect(restored.config).not.toHaveProperty('concurrency');
+    expect(restored.endpoints[0].model).toBe('fixture');
+    expect(restored.compare).toBe(true);
+    expect(JSON.parse(serializeMediaSettings(restored)).version).toBe(2);
+    const custom = { ...old, config: { ...old.config, width: 720, height: 1280, fps: 30 } };
+    expect(restoreMediaSettings('video', 'default', JSON.stringify(custom)).config).toMatchObject({ width: 720, height: 1280, fps: 30 });
+    const explicitOldValues = { ...old, version: 2 };
+    expect(restoreMediaSettings('video', 'default', JSON.stringify(explicitOldValues)).config).toMatchObject({ width: 832, height: 480, fps: 16 });
+    expect(restoreMediaSettings('image', 'default', JSON.stringify(old)).config).not.toHaveProperty('concurrency');
+  });
   it('stores each mode separately and strips credentials and untrusted fields on restoration', () => {
     const saved = serializeMediaSettings({ config, compare: true, endpoints: [endpoint] });
     expect(saved).not.toContain('memory-only');
@@ -147,7 +177,7 @@ describe('media configuration', () => {
     expect(restored.endpoints[0].apiKey).toBe('');
     const unsafe = JSON.stringify({ version: 1, config: { mode: 'image', concurrency: 100, seed: -1, prompt: 'custom' }, endpoints: [{ baseUrl: 'https://key:secret@example.com', apiKey: 'bad', protocol: 'ollama' }] });
     const safe = restoreMediaSettings('video', 'default', unsafe);
-    expect(safe.config).toMatchObject({ mode: 'video', concurrency: 1, seed: null, prompt: 'custom' });
+    expect(safe.config).toMatchObject({ mode: 'video', seed: null, prompt: 'custom' });
     expect(safe.endpoints[0]).toMatchObject({ protocol: 'openai', apiKey: '', baseUrl: 'http://localhost:8091/v1' });
     expect(restoreMediaSettings('video', 'default', '{').config.timeoutSeconds).toBe(1800);
   });

@@ -1,6 +1,6 @@
 # LLM Speedtest
 
-一个用于测试语言模型、文生图与文生视频部署性能的浏览器测速网站。支持 OpenAI 兼容 Chat Completions 与 Ollama 原生接口、A/B 同时对比、每端点 1–16 并发、流式输出、思考模式、明暗主题和多语言界面。
+一个用于测试语言模型、文生图与文生视频部署性能的浏览器测速网站。支持 OpenAI 兼容 Chat Completions 与 Ollama 原生接口、A/B 同时对比、语言模型每端点 1–16 并发、流式输出、思考模式、明暗主题和多语言界面。
 
 所有推理请求从用户浏览器直接发送到配置的端点。Cloudflare 托管前端静态资源；完成数据库迁移后，语言模型测速结束时可以把汇总结果写入 D1；图像和视频结果仅在浏览器会话中展示。
 
@@ -77,15 +77,18 @@ Ollama 的自动 `num_ctx` 为输入估算 + 输出上限 + 512 token 余量，�
 
 标题右侧可切换“语言模型 / 文生图 / 文生视频”，刷新后默认进入语言模型。三种模式分别保存配置；测速期间禁止切换，结果页切换会清理当前媒体预览。API Key 只保存在内存，媒体文件不写入 localStorage 或 D1。
 
-图像和视频左侧可直接输入提示词，右侧调整分辨率预设、自定义宽高、去噪步数与并发数；视频额外提供时长。每个并发请求生成一张图片或一个视频，A/B 使用相同的提示词与参数。“更多参数”包含超时、可选随机种子，以及视频 FPS。模型名可手动填写，也可通过连接按钮从 `/v1/models` 获取。
+图像和视频左侧可直接输入提示词，右侧调整分辨率预设、自定义宽高、去噪步数；视频额外提供时长。每次测试每个端点只发起一个请求，生成一张图片或一个视频，A/B 使用相同的提示词与参数。“更多参数”包含超时、可选随机种子，以及视频 FPS。模型名可手动填写，也可通过连接按钮从 `/v1/models` 获取。
 
 | 参数 | 图像默认值 | 视频默认值 | 范围 |
 | --- | --- | --- | --- |
-| 分辨率 | 1024×1024 | 832×480 | 自定义宽高各 64–4096 px |
+| 分辨率 | 1024×576（16:9） | 1280×720（16:9） | 自定义宽高各 64–4096 px |
 | 去噪步数 | 20 | 20 | 1–100 |
-| 每端点并发 | 1 | 1 | 1–16 |
 | 超时 | 300 秒 | 1800 秒 | 30–1800 秒 |
-| 视频时长 / FPS | — | 5 秒 / 16 | 1–30 秒 / 1–60 FPS |
+| 视频时长 / FPS | — | 5 秒 / 24 | 1–30 秒 / 1–60 FPS |
+
+图片和视频滑动条统一提供 512×288、768×432、1024×576、1280×720、1920×1080 五档预设，均为严格的 16:9。自定义宽高仍可使用其他比例。
+
+旧版保存的并发数会被忽略；旧图片默认分辨率 1024×1024 会迁移为 1024×576；旧视频默认分辨率 832×480 与 FPS 16 会迁移为新默认值，其他自定义设置保留。
 
 这些是客户端可输入范围，实际可用尺寸、步数与时长取决于部署模型。客户端保留上游参数错误，不自动降级生成参数，也不自动重试生成请求。
 
@@ -94,7 +97,7 @@ Ollama 的自动 `num_ctx` 为输入估算 + 输出上限 + 512 token 余量，�
 以当前 [vLLM-Omni Images API](https://docs.vllm.ai/projects/vllm-omni/en/latest/serving/image_generation_api/) 和 [Videos API](https://docs.vllm.ai/projects/vllm-omni/en/latest/serving/videos_api/) 为基线：
 
 - 图片：`POST /v1/images/generations`，JSON 包含 `model`、`prompt`、`size`、`n: 1`、`num_inference_steps`、`response_format: "b64_json"` 和可选 `seed`。支持 Base64 与 URL 结果。
-- 视频：`POST /v1/videos`，multipart 表单包含 `model`、`prompt`、`size`、`seconds`、`fps`、`num_inference_steps` 和可选 `seed`，不发送冲突的 `num_frames`。每秒通过 `GET /v1/videos/{id}` 查询，完成后通过 `GET /v1/videos/{id}/content` 下载。
+- 视频：`POST /v1/videos`，multipart 表单包含 `model`、`prompt`、`size`、`seconds`、`fps`、`num_inference_steps` 和可选 `seed`。`extra_params` 自动包含按宽高约分得出的 `aspect_ratio`（例如 `{"aspect_ratio":"16:9"}`，竖屏为 `9:16`）；不发送冲突的 `num_frames`。每秒通过 `GET /v1/videos/{id}` 查询，完成后通过 `GET /v1/videos/{id}/content` 下载。
 - 停止或超时时中止浏览器请求，对已知的未完成视频任务尽力执行 `DELETE /v1/videos/{id}`；服务端是否立即停止取决于模型。任务创建请求被中断且没有返回 ID 时，客户端无法删除未知任务。
 - 继续使用浏览器直连，端点需允许当前页面来源的 CORS、`Authorization`、`Content-Type` 与 GET/POST/DELETE。媒体下载仅向同源端点发送 API Key；带凭据的下载不跟随重定向。第三方图片地址必须允许浏览器跨域获取。
 

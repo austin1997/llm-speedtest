@@ -12,7 +12,6 @@ export interface MediaConfig {
   seconds: number;
   fps: number;
   seed: number | null;
-  concurrency: number;
   timeoutSeconds: number;
 }
 export interface MediaSettings { config: MediaConfig; endpoints: EndpointConfig[]; compare: boolean }

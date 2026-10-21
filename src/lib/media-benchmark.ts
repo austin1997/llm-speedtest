@@ -24,7 +24,7 @@ export function startMediaBenchmark(config: MediaConfig, endpoints: EndpointConf
   const clock = dependencies.clock ?? (() => performance.now());
   const fetcher = dependencies.fetcher ?? fetch;
   const state: MediaRun = { config: { ...config }, endpoints: targets.map(e => ({ ...e, apiKey: '' })), startedAt: clock(), now: clock(), phase: 'running', history: [],
-    requests: targets.flatMap(e => Array.from({ length: config.concurrency }, (_, i): MediaRequest => ({ id: `${e.id}-${i + 1}`, endpointId: e.id, status: 'pending', startedAt: null, endedAt: null }))) };
+    requests: targets.map((e): MediaRequest => ({ id: `${e.id}-1`, endpointId: e.id, status: 'pending', startedAt: null, endedAt: null })) };
   const controllers = state.requests.map(() => new AbortController());
   let cancelled = false;
   const publish = () => {
