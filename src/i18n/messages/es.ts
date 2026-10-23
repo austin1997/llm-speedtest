@@ -23,6 +23,7 @@ export const es: Catalog = {
   "media.height": "Alto (px)",
   "media.seconds": "Duración del vídeo",
   "media.steps": "Pasos de eliminación de ruido",
+  "media.batchSize": "Tamaño del lote",
   "media.seed": "Semilla (opcional)",
   "media.invalidPrompt": "Introduce un prompt de 1 a 10.000 caracteres.",
   "media.invalidConfig": "Los parámetros de generación están fuera de los límites permitidos.",
@@ -49,7 +50,7 @@ export const es: Catalog = {
   "media.state": "Estado",
   "media.error": "Detalles del error",
   "media.trend": "Rendimiento acumulado a lo largo del tiempo",
-  "media.imageNote": "La latencia de imagen incluye transferencia y análisis JSON. La preparación de la vista previa se mide aparte. Menor latencia es mejor.",
+  "media.imageNote": "La latencia de imagen se mide por solicitud de lote e incluye transferencia y análisis JSON. La preparación de la vista previa se mide aparte. Menor latencia es mejor.",
   "media.videoNote": "La latencia incluye cola y sondeo cada segundo, pero no la descarga. No es tiempo puro de inferencia. RTF = tiempo de finalización / duración real del clip (solicitada si es estimada); menor es mejor.",
   "media.throughputNote": "Rendimiento = resultados correctos / tiempo total, incluida la espera de solicitudes fallidas y canceladas. La latencia media solo incluye solicitudes correctas.",
 

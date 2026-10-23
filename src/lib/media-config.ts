@@ -8,13 +8,13 @@ export const mediaStorageKey = (mode: MediaMode) => `llm-speedtest-${mode}-confi
 export function defaultMediaSettings(mode: MediaMode, prompt: string): MediaSettings {
   return {
     config: { mode, prompt, width: mode === 'image' ? 1024 : 1280, height: mode === 'image' ? 576 : 720,
-      steps: 20, seconds: 5, fps: 24, seed: null, timeoutSeconds: mode === 'image' ? 300 : 1800 },
+      batchSize: 1, steps: 20, seconds: 5, fps: 24, seed: null, timeoutSeconds: mode === 'image' ? 300 : 1800 },
     endpoints: (['A', 'B'] as const).map(id => ({ id, alias: '', protocol: 'openai', baseUrl: `http://localhost:${mode === 'image' ? 8000 : 8091}/v1`,
       model: '', apiKey: '', includeUsage: false, maxTokensField: 'max_tokens', thinkingFormat: 'reasoning_effort', contextLength: null })),
     compare: false,
   };
 }
-export const mediaBounds = { width: [64, 4096], height: [64, 4096], steps: [1, 100], seconds: [1, 30], fps: [1, 60], timeoutSeconds: [30, 1800] } as const;
+export const mediaBounds = { width: [64, 4096], height: [64, 4096], batchSize: [1, 10], steps: [1, 100], seconds: [1, 30], fps: [1, 60], timeoutSeconds: [30, 1800] } as const;
 export function validateMediaConfig(config: MediaConfig): void {
   if (!config.prompt.trim() || config.prompt.length > 10000) throw new LocalizedError('media.invalidPrompt');
   for (const [key, [min, max]] of Object.entries(mediaBounds)) {

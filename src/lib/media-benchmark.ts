@@ -1,5 +1,5 @@
 import { describeError, LocalizedError, msg } from '../i18n/message';
-import { errorDetail, imageAsset, imageBody, inferenceSeconds, mediaHeaders, mediaJson, mediaUrl, videoBody, videoProgress } from './media-protocol';
+import { errorDetail, imageAssets, imageBody, inferenceSeconds, mediaHeaders, mediaJson, mediaUrl, videoBody, videoProgress } from './media-protocol';
 import { validateMediaConfig } from './media-config';
 import type { EndpointConfig } from './types';
 import type { MediaConfig, MediaRequest, MediaRun } from './media-types';
@@ -47,7 +47,7 @@ export function startMediaBenchmark(config: MediaConfig, endpoints: EndpointConf
           method: 'POST', headers: { ...mediaHeaders(endpoint), 'Content-Type': 'application/json' }, body: JSON.stringify(imageBody(config, endpoint)), signal,
         }));
         signal.throwIfAborted();
-        request.asset = imageAsset(body, endpoint.baseUrl);
+        request.assets = imageAssets(body, endpoint.baseUrl);
         request.inferenceSeconds = inferenceSeconds(body);
       } else {
         let body = await mediaJson(await fetcher(mediaUrl(endpoint.baseUrl, 'videos'), {
@@ -97,6 +97,7 @@ export function startMediaBenchmark(config: MediaConfig, endpoints: EndpointConf
 export function mediaMetrics(run: MediaRun, id: EndpointConfig['id']) {
   const requests = run.requests.filter(r => r.endpointId === id);
   const successful = requests.filter(r => r.status === 'success');
+  const outputCount = successful.reduce((count, request) => count + (run.config.mode === 'image' ? request.assets?.length ?? 0 : 1), 0);
   const durations = successful.map(r => r.endedAt! - r.startedAt!);
   const starts = requests.flatMap(r => r.startedAt === null ? [] : [r.startedAt]);
   const end = requests.every(r => r.endedAt !== null) ? Math.max(...requests.map(r => r.endedAt!)) : run.now;
@@ -107,7 +108,7 @@ export function mediaMetrics(run: MediaRun, id: EndpointConfig['id']) {
     successRate: requests.length ? successful.length / requests.length * 100 : null,
     mean: durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null,
     min: durations.length ? Math.min(...durations) : null, max: durations.length ? Math.max(...durations) : null,
-    throughput: elapsed > 0 ? successful.length / elapsed * (run.config.mode === 'image' ? 1000 : 60000) : null,
+    throughput: elapsed > 0 ? outputCount / elapsed * (run.config.mode === 'image' ? 1000 : 60000) : null,
     serverMean: server.length ? server.reduce((a, b) => a + b, 0) / server.length : null,
   };
 }

@@ -23,6 +23,7 @@ export const ja: Catalog = {
   "media.height": "高さ（px）",
   "media.seconds": "動画の長さ",
   "media.steps": "ノイズ除去ステップ数",
+  "media.batchSize": "バッチサイズ",
   "media.seed": "シード（任意）",
   "media.invalidPrompt": "1～10,000文字のプロンプトを入力してください。",
   "media.invalidConfig": "生成パラメーターが許容範囲外です。",
@@ -49,7 +50,7 @@ export const ja: Catalog = {
   "media.state": "状態",
   "media.error": "エラー詳細",
   "media.trend": "経過時間に対する累積スループット",
-  "media.imageNote": "画像の完了時間には応答転送とJSON解析を含みます。プレビュー準備は別計測です。短いほど良好です。",
+  "media.imageNote": "画像の完了時間はバッチリクエスト単位で計測し、応答転送とJSON解析を含みます。プレビュー準備は別計測です。短いほど良好です。",
   "media.videoNote": "完了時間には待機と1秒間隔のポーリングを含み、ダウンロードは含みません。純粋な推論時間ではありません。RTF＝完了時間÷実際の動画の長さ（推定時は指定値）。小さいほど良好です。",
   "media.throughputNote": "スループット＝成功した出力数÷ラウンド時間（失敗・中止の待ち時間を含む）。平均完了時間は成功リクエストのみ対象です。",
 

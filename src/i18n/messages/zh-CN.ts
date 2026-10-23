@@ -23,6 +23,7 @@ export const zhCN: Catalog = {
   "media.height": "高度（px）",
   "media.seconds": "视频时长",
   "media.steps": "去噪步数",
+  "media.batchSize": "批量张数（Batch）",
   "media.seed": "随机种子（可选）",
   "media.invalidPrompt": "请输入 1–10,000 个字符的提示词。",
   "media.invalidConfig": "生成参数超出允许范围。",
@@ -49,7 +50,7 @@ export const zhCN: Catalog = {
   "media.state": "状态",
   "media.error": "错误详情",
   "media.trend": "累计吞吐随时间变化",
-  "media.imageNote": "图片完成耗时包含响应传输及 JSON 解析，预览准备单独计时；耗时越低越好。",
+  "media.imageNote": "图片完成耗时按批次请求统计，包含响应传输及 JSON 解析，预览准备单独计时；耗时越低越好。",
   "media.videoNote": "完成耗时包含排队和每秒轮询的等待，不含文件下载，不代表纯推理耗时。RTF = 完成耗时 ÷ 实际视频时长（估算时使用请求时长），越低越好。",
   "media.throughputNote": "吞吐 = 成功作品数 ÷ 整轮耗时（包含失败和停止请求的等待）；平均完成耗时只统计成功请求。",
 

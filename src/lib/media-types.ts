@@ -8,6 +8,7 @@ export interface MediaConfig {
   prompt: string;
   width: number;
   height: number;
+  batchSize: number;
   steps: number;
   seconds: number;
   fps: number;
@@ -26,6 +27,7 @@ export interface MediaRequest {
   startedAt: number | null;
   endedAt: number | null;
   asset?: MediaAsset;
+  assets?: MediaAsset[];
   inferenceSeconds?: number;
   error?: Msg;
 }

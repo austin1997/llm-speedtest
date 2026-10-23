@@ -15,7 +15,7 @@ export function mediaHeaders(endpoint: EndpointConfig): Record<string, string> {
   return endpoint.apiKey.trim() ? { Authorization: `Bearer ${endpoint.apiKey.trim()}` } : {};
 }
 export function imageBody(config: MediaConfig, endpoint: EndpointConfig) {
-  return { model: endpoint.model.trim(), prompt: config.prompt, size: `${config.width}x${config.height}`, n: 1,
+  return { model: endpoint.model.trim(), prompt: config.prompt, size: `${config.width}x${config.height}`, n: config.batchSize,
     num_inference_steps: config.steps, response_format: 'b64_json', ...(config.seed !== null ? { seed: config.seed } : {}) };
 }
 export function aspectRatio(width: number, height: number): string {
@@ -51,14 +51,16 @@ export async function mediaJson(response: Response): Promise<Record<string, any>
   if (body.error) throw new LocalizedError('error.raw', { text: errorDetail(body) });
   return body;
 }
-export function imageAsset(body: Record<string, any>, base: string): MediaAsset {
-  const item = body.data?.[0];
-  if (typeof item?.b64_json === 'string' && item.b64_json.length) {
-    try { if (!atob(item.b64_json).length) throw new Error(); } catch { throw new LocalizedError('media.invalidResponse'); }
-    return { base64: item.b64_json, mime: 'image/png' };
-  }
-  if (typeof item?.url === 'string' && item.url) return { url: safeAssetUrl(item.url, base), mime: 'image/png' };
-  throw new LocalizedError('media.invalidResponse');
+export function imageAssets(body: Record<string, any>, base: string): MediaAsset[] {
+  if (!Array.isArray(body.data) || !body.data.length) throw new LocalizedError('media.invalidResponse');
+  return body.data.map((item: any): MediaAsset => {
+    if (typeof item?.b64_json === 'string' && item.b64_json.length) {
+      try { if (!atob(item.b64_json).length) throw new Error(); } catch { throw new LocalizedError('media.invalidResponse'); }
+      return { base64: item.b64_json, mime: 'image/png' };
+    }
+    if (typeof item?.url === 'string' && item.url) return { url: safeAssetUrl(item.url, base), mime: 'image/png' };
+    throw new LocalizedError('media.invalidResponse');
+  });
 }
 export function safeAssetUrl(value: string, base: string): string {
   let url: URL;

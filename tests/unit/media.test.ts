@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defaultMediaSettings, resolutions, restoreMediaSettings, serializeMediaSettings } from '../../src/lib/media-config';
-import { aspectRatio, fetchMediaAsset, imageBody, imageAsset, mediaUrl, videoBody, videoProgress } from '../../src/lib/media-protocol';
+import { defaultMediaSettings, resolutions, restoreMediaSettings, serializeMediaSettings, validateMediaConfig } from '../../src/lib/media-config';
+import { aspectRatio, fetchMediaAsset, imageBody, imageAssets, mediaUrl, videoBody, videoProgress } from '../../src/lib/media-protocol';
 import { mediaMetrics, startMediaBenchmark, videoRtf } from '../../src/lib/media-benchmark';
 import type { MediaRun } from '../../src/lib/media-types';
 
@@ -23,8 +23,9 @@ describe('media protocol', () => {
     for (const base of ['ftp://host', 'https://user:secret@host', 'https://host?key=secret', 'broken']) expect(() => mediaUrl(base, 'videos')).toThrow();
     expect(mediaUrl(endpoint.baseUrl, 'videos', 'a/b', true)).toBe('http://localhost:8000/v1/videos/a%2Fb/content');
   });
-  it('sends one image and top-level diffusion parameters; video uses FormData without frame conflicts', () => {
+  it('sends the image batch size and top-level diffusion parameters; video uses FormData without frame conflicts', () => {
     expect(imageBody({ ...config, seed: 0 }, endpoint)).toEqual({ model: 'fixture', prompt: 'test prompt', n: 1, size: '1024x576', num_inference_steps: 20, seed: 0, response_format: 'b64_json' });
+    expect(imageBody({ ...config, batchSize: 4 }, endpoint).n).toBe(4);
     expect(Object.fromEntries(videoBody(video, endpoint))).toEqual({ model: 'fixture', prompt: 'test prompt', size: '1280x720', seconds: '5', fps: '24', num_inference_steps: '20', extra_params: JSON.stringify({ aspect_ratio: '16:9' }) });
   });
   it.each([[1280, 720, '16:9'], [720, 1280, '9:16'], [640, 480, '4:3'], [1024, 1024, '1:1'], [896, 512, '7:4']] as const)('derives aspect ratio from %s × %s', (width, height, ratio) => {
@@ -38,9 +39,11 @@ describe('media protocol', () => {
     expect(videoProgress({ status: 'completed', progress: 0 })).toBe(100);
   });
   it('validates Base64 and URL assets', () => {
-    expect(imageAsset(image, endpoint.baseUrl).base64).toBe(image.data[0].b64_json);
-    expect(imageAsset({ data: [{ url: '/output.png' }] }, endpoint.baseUrl).url).toBe('http://localhost:8000/output.png');
-    for (const body of [{ data: [] }, { data: [{ b64_json: '!!!' }] }, { data: [{ url: 'javascript:alert(1)' }] }]) expect(() => imageAsset(body, endpoint.baseUrl)).toThrow();
+    expect(imageAssets(image, endpoint.baseUrl)[0].base64).toBe(image.data[0].b64_json);
+    expect(imageAssets({ data: [image.data[0], { url: '/output.png' }] }, endpoint.baseUrl)).toEqual([
+      { base64: image.data[0].b64_json, mime: 'image/png' }, { url: 'http://localhost:8000/output.png', mime: 'image/png' },
+    ]);
+    for (const body of [{ data: [] }, { data: {} }, { data: [{ b64_json: '!!!' }] }, { data: [image.data[0], { url: 'javascript:alert(1)' }] }]) expect(() => imageAssets(body, endpoint.baseUrl)).toThrow();
   });
   it('keeps authorization off third-party downloads, preserves it for protected video content', async () => {
     const calls: RequestInit[] = [];
@@ -66,6 +69,16 @@ describe('media execution', () => {
     expect(result.requests.map(r => r.status)).toEqual(['success', 'success']);
     expect(new Set(bodies.map(body => JSON.stringify(body))).size).toBe(1);
     expect(result.endpoints.every(e => !e.apiKey)).toBe(true);
+  });
+  it('generates a batch in one request and measures throughput from actual image counts and batch latency', async () => {
+    let now = 0;
+    const fetcher = vi.fn(async () => { now = 2000; return response({ ...image, data: [...image.data, { url: '/second.png' }, ...image.data] }); });
+    const result = await startMediaBenchmark({ ...config, batchSize: 4 }, [endpoint], () => {}, { fetcher, clock: () => now }).finished;
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.requests[0]).toMatchObject({ status: 'success', assets: [
+      { base64: image.data[0].b64_json }, { url: 'http://localhost:8000/second.png' }, { base64: image.data[0].b64_json },
+    ] });
+    expect(mediaMetrics(result, 'A')).toMatchObject({ count: 1, success: 1, successRate: 100, mean: 2000, throughput: 1.5 });
   });
   it('polls queue and running states, stopping measurement before content download', async () => {
     vi.useFakeTimers();
@@ -169,6 +182,17 @@ describe('media execution', () => {
 });
 
 describe('media configuration', () => {
+  it('restores old settings with batch size 1 and persists a chosen batch size', () => {
+    const old = JSON.stringify({ version: 2, config: { steps: 32 } });
+    expect(restoreMediaSettings('image', 'default', old).config).toMatchObject({ batchSize: 1, steps: 32 });
+    const settings = { ...defaults, config: { ...config, batchSize: 10 } };
+    expect(restoreMediaSettings('image', 'default', serializeMediaSettings(settings)).config.batchSize).toBe(10);
+    expect(() => validateMediaConfig(settings.config)).not.toThrow();
+  });
+  it.each([0, 11, 1.5, NaN])('rejects invalid batch size %s and restores the default from invalid storage', batchSize => {
+    expect(() => validateMediaConfig({ ...config, batchSize })).toThrow();
+    expect(restoreMediaSettings('image', 'default', JSON.stringify({ version: 2, config: { batchSize } })).config.batchSize).toBe(1);
+  });
   it('uses only exact 16:9 presets and migrates the old image default', () => {
     for (const mode of ['image', 'video'] as const) {
       for (const [width, height] of resolutions[mode]) expect(width * 9).toBe(height * 16);

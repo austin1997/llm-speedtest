@@ -23,6 +23,7 @@ export const ko: Catalog = {
   "media.height": "높이 (px)",
   "media.seconds": "동영상 길이",
   "media.steps": "노이즈 제거 단계",
+  "media.batchSize": "배치 크기",
   "media.seed": "시드 (선택 사항)",
   "media.invalidPrompt": "1~10,000자의 프롬프트를 입력하세요.",
   "media.invalidConfig": "생성 매개변수가 허용 범위를 벗어났습니다.",
@@ -49,7 +50,7 @@ export const ko: Catalog = {
   "media.state": "상태",
   "media.error": "오류 상세",
   "media.trend": "시간에 따른 누적 처리량",
-  "media.imageNote": "이미지 완료 시간에는 응답 전송과 JSON 분석이 포함됩니다. 미리보기 준비는 별도 측정하며 지연은 낮을수록 좋습니다.",
+  "media.imageNote": "이미지 완료 시간은 배치 요청 단위로 측정하며 응답 전송과 JSON 분석이 포함됩니다. 미리보기 준비는 별도 측정하며 지연은 낮을수록 좋습니다.",
   "media.videoNote": "완료 시간에는 대기와 1초 간격 폴링이 포함되며 다운로드는 제외됩니다. 순수 추론 시간이 아닙니다. RTF = 완료 시간 / 실제 영상 길이 (추정 시 요청 길이). 낮을수록 좋습니다.",
   "media.throughputNote": "처리량 = 성공한 결과 수 / 전체 시간 (실패 및 취소 요청 대기 포함). 평균 완료 시간은 성공한 요청만 집계합니다.",
 

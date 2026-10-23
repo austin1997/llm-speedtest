@@ -23,12 +23,16 @@ test('isolates modes, restores media parameters, and starts in language mode', a
   await expect(page.getByLabel('宽度（px）')).toHaveValue('768');
   await page.getByLabel('宽度（px）').fill('896');
   await page.getByLabel('去噪步数数值').fill('24');
+  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('1');
+  await page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true }).fill('4');
+  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('4');
   await configure(page);
   await page.getByLabel('连接端点 A 并获取模型').click();
   await expect(page.getByRole('status')).toContainText('连接');
   await expect(page.getByLabel('测速模式')).toBeEnabled();
   await page.getByLabel('测速模式').selectOption('video');
   await expect(page.getByLabel('视频时长数值')).toHaveValue('5');
+  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveCount(0);
   await expect(page.getByLabel('并发请求数值')).toHaveCount(0);
   await expect(page.getByLabel('宽度（px）')).toHaveValue('1280');
   await expect(page.getByLabel('高度（px）')).toHaveValue('720');
@@ -39,12 +43,14 @@ test('isolates modes, restores media parameters, and starts in language mode', a
   await page.getByLabel('测速模式').selectOption('image');
   await expect(page.getByLabel('提示词输入', { exact: true })).toHaveValue('custom image prompt');
   await expect(page.getByLabel('宽度（px）')).toHaveValue('896');
+  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('4');
   await expect(page.getByLabel('端点 A API Key')).toHaveValue('media-memory-key');
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('media-memory-key');
   await page.reload();
   await expect(page.getByLabel('测速模式')).toHaveValue('language');
   await page.getByLabel('测速模式').selectOption('image');
   await expect(page.getByLabel('去噪步数数值')).toHaveValue('24');
+  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveValue('4');
   await expect(page.getByLabel('端点 A API Key')).toHaveValue('');
 });
 
@@ -92,6 +98,32 @@ test('compares images with identical prompts and parameters and downloads a prev
   await page.getByLabel('测速模式').selectOption('video');
   await expect(page.getByLabel('提示词输入', { exact: true })).toBeVisible();
   await expect(page.getByTestId('media-output')).toHaveCount(0);
+});
+
+test('generates image batches per endpoint and offers every image as a separate download', async ({ page, request }) => {
+  await page.getByLabel('测速模式').selectOption('image');
+  await configure(page);
+  await page.getByRole('button', { name: 'A/B 对比' }).click();
+  await configure(page, 'B', '/media-url');
+  await page.getByLabel('批量张数（Batch）数值').fill('3');
+  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveValue('3');
+  await page.getByLabel('开始测试', { exact: true }).click();
+  await expect(page.getByRole('button', { name: '再次测试' })).toBeVisible();
+  await expect(page.getByRole('img', { name: '生成结果' })).toHaveCount(6);
+  const downloads = page.getByRole('link', { name: '下载', exact: true });
+  await expect(downloads).toHaveCount(6);
+  const filenames = await downloads.evaluateAll(links => links.map(link => link.getAttribute('download')));
+  expect(filenames).toEqual(['image-A-1-1.png', 'image-A-1-2.png', 'image-A-1-3.png', 'image-B-1-1.png', 'image-B-1-2.png', 'image-B-1-3.png']);
+  const download = page.waitForEvent('download');
+  await downloads.last().click();
+  expect((await download).suggestedFilename()).toBe('image-B-1-3.png');
+  await expect(page.locator('.run-config-strip')).toContainText('批量张数（Batch）: 3');
+  const calls = await (await request.get(`${server}/test/requests`)).json();
+  const posts = calls.filter((req: any) => req.method === 'POST');
+  expect(posts).toHaveLength(2);
+  expect(posts.every((req: any) => req.body.n === 3)).toBe(true);
+  expect(posts[0].body).toEqual(posts[1].body);
+  await page.screenshot({ path: 'test-results/media-image-batch-results.png', fullPage: true });
 });
 
 test('polls video, preserves generation success on download failure and retries only content', async ({ page, request }) => {
@@ -244,6 +276,14 @@ for (const locale of ['en', 'zh-CN', 'zh-TW', 'ja', 'ko', 'es']) {
         await page.locator('.theme-switch button').nth(button).click();
         await page.screenshot({ path: `test-results/media-${locale}-${viewport.width}-${button}.png`, fullPage: true });
       }
+    }
+    await page.locator('.mode-switch').selectOption('image');
+    await expect(page.locator('.parameter-grid input[type="range"]')).toHaveCount(2);
+    for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      await expect(page.locator('.parameter-grid input[type="range"]').first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `test-results/media-image-${locale}-${viewport.width}.png`, fullPage: true });
     }
   });
 }

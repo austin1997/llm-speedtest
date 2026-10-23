@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Clock3, Download, Image, LoaderCircle, Plus, RotateCcw, Square, Video, Zap } from 'lucide-react';
+import { Check, ChevronDown, Clock3, Download, Image, Images, LoaderCircle, Plus, RotateCcw, Square, Video, Zap } from 'lucide-react';
 import { EndpointCard, NumberInput, Slider } from './components/BenchmarkControls';
 import { useI18n } from './i18n/I18nProvider';
 import { describeError, msg } from './i18n/message';
 import type { Msg } from './i18n/types';
 import { endpointName } from './lib/endpoint';
-import { mediaStorageKey, resolutions, restoreMediaSettings, serializeMediaSettings } from './lib/media-config';
+import { mediaBounds, mediaStorageKey, resolutions, restoreMediaSettings, serializeMediaSettings } from './lib/media-config';
 import { mediaMetrics, startMediaBenchmark, videoRtf } from './lib/media-benchmark';
 import { aspectRatio, fetchMediaAsset } from './lib/media-protocol';
-import type { MediaConfig, MediaMode, MediaRequest, MediaRun } from './lib/media-types';
+import type { MediaAsset, MediaConfig, MediaMode, MediaRequest, MediaRun } from './lib/media-types';
 import type { EndpointConfig } from './lib/types';
 
 type PreviewInfo = { duration?: number; downloadMs?: number };
@@ -26,8 +26,9 @@ function VideoLoading({ request, busy, failed }: { request: MediaRequest; busy: 
   </div>;
 }
 
-function MediaOutput({ request, endpoint, mode, now, onInfo, ratio }: {
+function MediaOutput({ request, endpoint, mode, now, onInfo, ratio, asset = request.asset, outputId = request.id }: {
   request: MediaRequest; endpoint: EndpointConfig; mode: MediaMode; now: number; ratio: number;
+  asset?: MediaAsset; outputId?: string;
   onInfo: (id: string, info: PreviewInfo) => void;
 }) {
   const { t, tMsg, time, n } = useI18n();
@@ -37,38 +38,38 @@ function MediaOutput({ request, endpoint, mode, now, onInfo, ratio }: {
   const [downloadMs, setDownloadMs] = useState<number>();
   const [extension, setExtension] = useState(mode === 'image' ? 'png' : 'mp4');
   useEffect(() => {
-    if (!request.asset) return;
+    if (!asset) return;
     const controller = new AbortController();
     let objectUrl = '';
     let timedOut = false;
-    setUrl(''); setError(null); onInfo(request.id, {});
+    setUrl(''); setError(null); onInfo(outputId, {});
     const start = performance.now();
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 120000);
-    void fetchMediaAsset(request.asset, endpoint, controller.signal).then(blob => {
+    void fetchMediaAsset(asset, endpoint, controller.signal).then(blob => {
       if (controller.signal.aborted) return;
       objectUrl = URL.createObjectURL(blob); setUrl(objectUrl);
       setExtension(({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm' } as Record<string, string>)[blob.type] ?? (mode === 'image' ? 'png' : 'mp4'));
       const elapsed = performance.now() - start;
-      setDownloadMs(elapsed); onInfo(request.id, { downloadMs: elapsed });
+      setDownloadMs(elapsed); onInfo(outputId, { downloadMs: elapsed });
     }).catch(reason => {
       if (timedOut) setError(msg('error.timeout', { seconds: 120 }));
       else if (!controller.signal.aborted) setError(describeError(reason));
     }).finally(() => clearTimeout(timeout));
     return () => { clearTimeout(timeout); controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [request.asset, request.id, endpoint, attempt, onInfo, mode]);
+  }, [asset, outputId, endpoint, attempt, onInfo, mode]);
   const busy = !error && (request.status === 'pending' || request.status === 'running' || (request.status === 'success' && !url));
   const status = mode === 'video' && busy ? t('media.videoLoading') : request.status === 'running' ? t('media.generating') : t(`status.${request.status}`);
   return <article className={`media-output ${mode === 'video' ? 'video-output' : ''} status-${request.status}`} data-testid="media-output">
-    <header><strong>{request.id}</strong><span>{status}{mode === 'video' && busy && request.progress !== undefined ? ` · ${n(request.progress, 0)}%` : ''}</span><span>{request.startedAt === null ? '—' : time((request.endedAt ?? now) - request.startedAt)}</span></header>
+    <header><strong>{outputId}</strong><span>{status}{mode === 'video' && busy && request.progress !== undefined ? ` · ${n(request.progress, 0)}%` : ''}</span><span>{request.startedAt === null ? '—' : time((request.endedAt ?? now) - request.startedAt)}</span></header>
     {mode === 'video' ? <div className="video-frame" style={{ aspectRatio: ratio }}>
       {url ? <video src={url} controls preload="metadata" onError={() => setError(msg('media.playbackError'))} onLoadedMetadata={event => {
         const duration = event.currentTarget.duration;
-        if (Number.isFinite(duration) && duration > 0) onInfo(request.id, { duration, downloadMs });
+        if (Number.isFinite(duration) && duration > 0) onInfo(outputId, { duration, downloadMs });
       }} /> : <VideoLoading request={request} busy={busy} failed={!!error} />}
-    </div> : url ? <img src={url} alt={t('media.output')} onError={() => setError(msg('media.invalidResponse'))} /> : request.asset && !error ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{t('media.loading')}</p> : request.status === 'running' ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{status}</p> : null}
+    </div> : url ? <img src={url} alt={t('media.output')} onError={() => setError(msg('media.invalidResponse'))} /> : asset && !error ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{t('media.loading')}</p> : request.status === 'running' ? <p className="media-placeholder"><LoaderCircle className="spin" size={18} />{status}</p> : null}
     {(url || mode === 'video') && <footer>
       <span>{t('media.downloadTime')}: {time(url ? downloadMs ?? null : null)}</span>
-      {url && <a className="primary-button" href={url} download={`${mode}-${request.id}.${extension}`}><Download size={14} />{t('media.download')}</a>}
+      {url && <a className="primary-button" href={url} download={`${mode}-${outputId}.${extension}`}><Download size={14} />{t('media.download')}</a>}
     </footer>}
     {request.error && <p className="request-error">{tMsg(request.error)}</p>}
     {error && <div className="request-error" role="alert">{tMsg(error)}{!url && <button className="primary-button" onClick={() => setAttempt(value => value + 1)}>{t('media.retryDownload')}</button>}</div>}
@@ -160,6 +161,7 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
           <div className="media-resolution"><label>{t('media.resolution')}<strong>{config.width} × {config.height} · {aspectRatio(config.width, config.height)}{preset === -1 ? ` · ${t('media.custom')}` : ''}</strong><input type="range" className="range" aria-label={t('media.resolution')} min={0} max={resolutions[mode].length - 1} value={Math.max(0, preset)} style={{ '--range-fill': `${Math.max(0, preset) / (resolutions[mode].length - 1) * 100}%` } as React.CSSProperties} onChange={event => { const [width, height] = resolutions[mode][Number(event.target.value)]; change({ width, height }); }} /></label>
           <div className="media-dimensions"><label>{t('media.width')}<NumberInput min={64} max={4096} step={1} value={config.width} onValue={value => change({ width: Math.round(value ?? 64) })} /></label><label>{t('media.height')}<NumberInput min={64} max={4096} step={1} value={config.height} onValue={value => change({ height: Math.round(value ?? 64) })} /></label></div></div>
           <div className="parameter-grid">
+            {mode === 'image' && <Slider label={t('media.batchSize')} value={config.batchSize} min={mediaBounds.batchSize[0]} max={mediaBounds.batchSize[1]} unit="" icon={<Images size={15} />} onChange={batchSize => change({ batchSize })} />}
             {mode === 'video' && <Slider label={t('media.seconds')} value={config.seconds} min={1} max={30} unit="s" icon={<Clock3 size={15} />} onChange={seconds => change({ seconds })} />}
             <Slider label={t('media.steps')} value={config.steps} min={1} max={100} unit="" icon={<Zap size={15} />} onChange={steps => change({ steps })} />
           </div>
@@ -172,7 +174,7 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
       </div>
       <section className="endpoint-settings"><div className="endpoint-settings-heading"><h2>{t('endpoints.title')} · OpenAI Compatible (vLLM-Omni)</h2><button className={`compare-toggle ${compare ? 'enabled' : ''}`} aria-pressed={compare} onClick={() => setSettings(current => ({ ...current, compare: !current.compare }))}>{compare ? <Check size={14} /> : <Plus size={14} />}{t('compare.label')}</button></div><div className={`endpoint-stack ${compare ? 'two-endpoints' : ''}`}>{endpoints.slice(0, compare ? 2 : 1).map(endpoint => <EndpointCard media key={endpoint.id} endpoint={endpoint} onChange={patch => setSettings(current => ({ ...current, endpoints: current.endpoints.map(e => e.id === endpoint.id ? { ...e, ...patch } : e) }))} />)}</div></section>
     </> : <>
-      <div className="run-config-strip"><span>{run.config.width} × {run.config.height}</span><span>{t('media.steps')}: {run.config.steps}</span>{mode === 'video' && <span>{run.config.seconds}s · {run.config.fps} FPS · {aspectRatio(run.config.width, run.config.height)}</span>}{run.config.seed !== null && <span>{t('media.seed')}: {run.config.seed}</span>}<span>{t('media.sessionOnly')}</span><span>{time(run.now - run.startedAt)}</span></div>
+      <div className="run-config-strip"><span>{run.config.width} × {run.config.height}</span>{mode === 'image' && <span>{t('media.batchSize')}: {run.config.batchSize}</span>}<span>{t('media.steps')}: {run.config.steps}</span>{mode === 'video' && <span>{run.config.seconds}s · {run.config.fps} FPS · {aspectRatio(run.config.width, run.config.height)}</span>}{run.config.seed !== null && <span>{t('media.seed')}: {run.config.seed}</span>}<span>{t('media.sessionOnly')}</span><span>{time(run.now - run.startedAt)}</span></div>
       <div className="media-run-content">
         {mode === 'image' && phase === 2 && <ImageResults run={run} />}
         <div className={`media-monitors ${run.endpoints.length === 2 ? 'comparison' : ''}`}>
@@ -182,7 +184,13 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
             return <section className={`panel media-monitor endpoint-${endpoint.id}`} key={endpoint.id}><div className="panel-title"><span className="endpoint-marker">{endpoint.id}</span><h2>{endpointName(endpoint)}</h2></div>
               <div className="media-stats"><div><span>{t('media.throughput')}</span><strong>{n(metrics.throughput, 3)}</strong><small>{t(mode === 'image' ? 'media.imagesPerSecond' : 'media.videosPerMinute')}</small></div><div><span>{t('media.successRate')}</span><strong>{n(metrics.successRate, 1)}%</strong><small>{metrics.success} / {metrics.count}</small></div><div><span>{t('media.latency')}</span><strong>{time(metrics.mean)}</strong><small>{t('source.measured')}</small></div>{mode === 'video' && <><div><span>RTF</span><strong>{n(rtf.value, 3)}</strong><small>{rtf.value === null ? '—' : t(rtf.estimated ? 'source.estimated' : 'source.measured')}</small></div><div><span>{t('media.serverTime')}</span><strong>{time(metrics.serverMean === null ? null : metrics.serverMean * 1000)}</strong><small>{t('source.reported')}</small></div></>}</div>
               <p className="hint">{t('media.trend')}</p><MediaTrend run={run} id={endpoint.id} />
-              <div className="media-outputs">{run.requests.filter(request => request.endpointId === endpoint.id).map(request => <MediaOutput key={request.id} request={request} endpoint={targets.current.find(e => e.id === endpoint.id)!} mode={mode} ratio={run.config.width / run.config.height} now={run.now} onInfo={onInfo} />)}</div>
+              <div className="media-outputs">{run.requests.filter(request => request.endpointId === endpoint.id).flatMap(request => {
+                const assets = request.assets ?? [request.asset];
+                return assets.map((asset, index) => {
+                  const outputId = assets.length > 1 ? `${request.id}-${index + 1}` : request.id;
+                  return <MediaOutput key={outputId} outputId={outputId} asset={asset} request={request} endpoint={targets.current.find(e => e.id === endpoint.id)!} mode={mode} ratio={run.config.width / run.config.height} now={run.now} onInfo={onInfo} />;
+                });
+              })}</div>
             </section>;
           })}
         </div>

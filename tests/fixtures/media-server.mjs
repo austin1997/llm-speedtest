@@ -17,7 +17,8 @@ export async function handleMedia(req, res, requests) {
     requests.push({ url: path, method: req.method, body, at: Date.now(), hasAuth: Boolean(req.headers.authorization) });
     if (path.startsWith('/media-error')) { json({ detail: 'fixture: unsupported size' }, 422); return true; }
     if (path.endsWith('/images/generations')) {
-      const timer = setTimeout(() => json({ data: [path.startsWith('/media-url') ? { url: 'http://127.0.0.1:4174/fixture.png' } : { b64_json: png }], inference_time_s: .1 }), path.startsWith('/media-slow') ? 10000 : 300);
+      const data = Array.from({ length: body.n ?? 1 }, () => path.startsWith('/media-url') ? { url: 'http://127.0.0.1:4174/fixture.png' } : { b64_json: png });
+      const timer = setTimeout(() => json({ data, inference_time_s: .1 }), path.startsWith('/media-slow') ? 10000 : 300);
       res.on('close', () => clearTimeout(timer));
     } else {
       const id = `fixture-${++sequence}`;
