@@ -24,8 +24,9 @@ test('isolates modes, restores media parameters, and starts in language mode', a
   await page.getByLabel('宽度（px）').fill('896');
   await page.getByLabel('去噪步数数值').fill('24');
   await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('1');
-  await page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true }).fill('4');
-  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('4');
+  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveAttribute('max', '16');
+  await page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true }).fill('16');
+  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('16');
   await configure(page);
   await page.getByLabel('连接端点 A 并获取模型').click();
   await expect(page.getByRole('status')).toContainText('连接');
@@ -43,14 +44,14 @@ test('isolates modes, restores media parameters, and starts in language mode', a
   await page.getByLabel('测速模式').selectOption('image');
   await expect(page.getByLabel('提示词输入', { exact: true })).toHaveValue('custom image prompt');
   await expect(page.getByLabel('宽度（px）')).toHaveValue('896');
-  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('4');
+  await expect(page.getByLabel('批量张数（Batch）数值')).toHaveValue('16');
   await expect(page.getByLabel('端点 A API Key')).toHaveValue('media-memory-key');
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('media-memory-key');
   await page.reload();
   await expect(page.getByLabel('测速模式')).toHaveValue('language');
   await page.getByLabel('测速模式').selectOption('image');
   await expect(page.getByLabel('去噪步数数值')).toHaveValue('24');
-  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveValue('4');
+  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveValue('16');
   await expect(page.getByLabel('端点 A API Key')).toHaveValue('');
 });
 
@@ -105,25 +106,69 @@ test('generates image batches per endpoint and offers every image as a separate 
   await configure(page);
   await page.getByRole('button', { name: 'A/B 对比' }).click();
   await configure(page, 'B', '/media-url');
-  await page.getByLabel('批量张数（Batch）数值').fill('3');
-  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveValue('3');
+  await page.getByLabel('批量张数（Batch）数值').fill('16');
+  await expect(page.getByRole('slider', { name: '批量张数（Batch）滑块', exact: true })).toHaveValue('16');
+  await expect(page.locator('.launch-summary')).toContainText('32 个请求');
   await page.getByLabel('开始测试', { exact: true }).click();
   await expect(page.getByRole('button', { name: '再次测试' })).toBeVisible();
-  await expect(page.getByRole('img', { name: '生成结果' })).toHaveCount(6);
+  await expect(page.getByRole('img', { name: '生成结果' })).toHaveCount(32);
   const downloads = page.getByRole('link', { name: '下载', exact: true });
-  await expect(downloads).toHaveCount(6);
+  await expect(downloads).toHaveCount(32);
   const filenames = await downloads.evaluateAll(links => links.map(link => link.getAttribute('download')));
-  expect(filenames).toEqual(['image-A-1-1.png', 'image-A-1-2.png', 'image-A-1-3.png', 'image-B-1-1.png', 'image-B-1-2.png', 'image-B-1-3.png']);
+  expect(filenames).toEqual(['A', 'B'].flatMap(id => Array.from({ length: 16 }, (_, index) => `image-${id}-${index + 1}.png`)));
   const download = page.waitForEvent('download');
   await downloads.last().click();
-  expect((await download).suggestedFilename()).toBe('image-B-1-3.png');
-  await expect(page.locator('.run-config-strip')).toContainText('批量张数（Batch）: 3');
+  expect((await download).suggestedFilename()).toBe('image-B-16.png');
+  await expect(page.locator('.run-config-strip')).toContainText('批量张数（Batch）: 16');
   const calls = await (await request.get(`${server}/test/requests`)).json();
   const posts = calls.filter((req: any) => req.method === 'POST');
-  expect(posts).toHaveLength(2);
-  expect(posts.every((req: any) => req.body.n === 3)).toBe(true);
-  expect(posts[0].body).toEqual(posts[1].body);
+  expect(posts).toHaveLength(32);
+  expect(posts.every((req: any) => req.body.n === 1)).toBe(true);
+  expect(new Set(posts.map((req: any) => JSON.stringify(req.body))).size).toBe(1);
   await page.screenshot({ path: 'test-results/media-image-batch-results.png', fullPage: true });
+});
+
+test('previews images as they complete out of order and retains earlier previews while the batch continues', async ({ page }) => {
+  await page.getByLabel('测速模式').selectOption('image');
+  await configure(page, 'A', '/media-staggered');
+  await page.getByLabel('批量张数（Batch）数值').fill('3');
+  await page.locator('.parameter-options > summary').click();
+  await page.getByLabel('随机种子（可选）').fill('0');
+  await page.getByLabel('开始测试', { exact: true }).click();
+  const outputs = page.getByTestId('media-output');
+  const second = outputs.filter({ hasText: 'A-2' }).getByRole('img', { name: '生成结果' });
+  await expect(second).toBeVisible();
+  await expect(page.getByRole('img', { name: '生成结果' })).toHaveCount(1);
+  await expect(outputs.filter({ hasText: 'A-1' })).toHaveClass(/status-running/);
+  await expect(outputs.filter({ hasText: 'A-3' })).toHaveClass(/status-running/);
+  await expect(page.getByRole('button', { name: '停止测试' })).toBeVisible();
+  await second.evaluate(img => img.setAttribute('data-persisted', 'yes'));
+  await expect(outputs.filter({ hasText: 'A-1' }).getByRole('img', { name: '生成结果' })).toBeVisible();
+  await expect(second).toHaveAttribute('data-persisted', 'yes');
+  await expect(page.getByRole('button', { name: '再次测试' })).toBeVisible();
+  await expect(page.getByRole('img', { name: '生成结果' })).toHaveCount(3);
+  await expect(second).toHaveAttribute('data-persisted', 'yes');
+  await page.screenshot({ path: 'test-results/media-image-progressive-results.png', fullPage: true });
+});
+
+test('cancels unfinished batch images while keeping completed previews and downloads', async ({ page, request }) => {
+  await page.getByLabel('测速模式').selectOption('image');
+  await configure(page, 'A', '/media-staggered');
+  await page.getByLabel('批量张数（Batch）数值').fill('3');
+  await page.locator('.parameter-options > summary').click();
+  await page.getByLabel('随机种子（可选）').fill('0');
+  await page.getByLabel('开始测试', { exact: true }).click();
+  await expect(page.getByRole('img', { name: '生成结果' })).toBeVisible();
+  await page.getByRole('button', { name: '停止测试' }).click();
+  await expect(page.getByRole('button', { name: '再次测试' })).toBeVisible();
+  await expect(page.locator('.media-output.status-success')).toHaveCount(1);
+  await expect(page.locator('.media-output.status-cancelled')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: '生成结果' })).toHaveCount(1);
+  const download = page.waitForEvent('download');
+  await page.getByRole('link', { name: '下载', exact: true }).click();
+  expect((await download).suggestedFilename()).toBe('image-A-2.png');
+  const calls = await (await request.get(`${server}/test/requests`)).json();
+  expect(calls.filter((req: any) => req.method === 'POST')).toHaveLength(3);
 });
 
 test('polls video, preserves generation success on download failure and retries only content', async ({ page, request }) => {

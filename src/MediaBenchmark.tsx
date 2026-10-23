@@ -139,6 +139,7 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
   if (!active) return null;
   const change = (patch: Partial<MediaConfig>) => setSettings(current => ({ ...current, config: { ...current.config, ...patch } }));
   const preset = resolutions[mode].findIndex(([width, height]) => width === config.width && height === config.height);
+  const requestCount = (mode === 'image' ? config.batchSize : 1) * (compare ? 2 : 1);
   function begin() {
     setError(null); setPreviews({});
     const revision = ++generation.current;
@@ -156,7 +157,7 @@ export default function MediaBenchmark({ mode, active, onPhase }: { mode: MediaM
           <textarea className="media-prompt" aria-label={t('media.prompt')} maxLength={10000} value={config.prompt} onChange={event => change({ prompt: event.target.value })} />
           <div className="preview-footer"><span>{t('media.sharedPrompt')}</span><span>{t('preview.chars', { count: config.prompt.length })}</span></div>
         </section>
-        <div className="launch-area"><button className="go-button" aria-label={t('launch.start')} onClick={begin}><span>GO</span><small>{t('launch.start')}</small></button><span className="launch-summary">{compare ? t('launch.compare', { count: 2 }) : t('launch.single', { count: 1 })}</span><p className="hint">{t('media.sessionOnly')}</p>{error && <p role="alert" className="error-text">{tMsg(error)}</p>}</div>
+        <div className="launch-area"><button className="go-button" aria-label={t('launch.start')} onClick={begin}><span>GO</span><small>{t('launch.start')}</small></button><span className="launch-summary">{compare ? t('launch.compare', { count: requestCount }) : t('launch.single', { count: requestCount })}</span><p className="hint">{t('media.sessionOnly')}</p>{error && <p role="alert" className="error-text">{tMsg(error)}</p>}</div>
         <section className="parameters-panel" aria-label={t('params.title')}><div className="panel-title"><h2>{t('params.title')}</h2></div>
           <div className="media-resolution"><label>{t('media.resolution')}<strong>{config.width} × {config.height} · {aspectRatio(config.width, config.height)}{preset === -1 ? ` · ${t('media.custom')}` : ''}</strong><input type="range" className="range" aria-label={t('media.resolution')} min={0} max={resolutions[mode].length - 1} value={Math.max(0, preset)} style={{ '--range-fill': `${Math.max(0, preset) / (resolutions[mode].length - 1) * 100}%` } as React.CSSProperties} onChange={event => { const [width, height] = resolutions[mode][Number(event.target.value)]; change({ width, height }); }} /></label>
           <div className="media-dimensions"><label>{t('media.width')}<NumberInput min={64} max={4096} step={1} value={config.width} onValue={value => change({ width: Math.round(value ?? 64) })} /></label><label>{t('media.height')}<NumberInput min={64} max={4096} step={1} value={config.height} onValue={value => change({ height: Math.round(value ?? 64) })} /></label></div></div>

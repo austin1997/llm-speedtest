@@ -50,7 +50,7 @@ export const zhCN: Catalog = {
   "media.state": "状态",
   "media.error": "错误详情",
   "media.trend": "累计吞吐随时间变化",
-  "media.imageNote": "图片完成耗时按批次请求统计，包含响应传输及 JSON 解析，预览准备单独计时；耗时越低越好。",
+  "media.imageNote": "Batch 以单图请求并行生成，每张完成后立即预览。完成耗时按单张图片统计，包含响应传输及 JSON 解析，预览准备单独计时；耗时越低越好。",
   "media.videoNote": "完成耗时包含排队和每秒轮询的等待，不含文件下载，不代表纯推理耗时。RTF = 完成耗时 ÷ 实际视频时长（估算时使用请求时长），越低越好。",
   "media.throughputNote": "吞吐 = 成功作品数 ÷ 整轮耗时（包含失败和停止请求的等待）；平均完成耗时只统计成功请求。",
 

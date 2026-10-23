@@ -23,8 +23,9 @@ export function startMediaBenchmark(config: MediaConfig, endpoints: EndpointConf
   }
   const clock = dependencies.clock ?? (() => performance.now());
   const fetcher = dependencies.fetcher ?? fetch;
+  const requestsPerEndpoint = config.mode === 'image' ? config.batchSize : 1;
   const state: MediaRun = { config: { ...config }, endpoints: targets.map(e => ({ ...e, apiKey: '' })), startedAt: clock(), now: clock(), phase: 'running', history: [],
-    requests: targets.map((e): MediaRequest => ({ id: `${e.id}-1`, endpointId: e.id, status: 'pending', startedAt: null, endedAt: null })) };
+    requests: targets.flatMap(e => Array.from({ length: requestsPerEndpoint }, (_, index): MediaRequest => ({ id: `${e.id}-${index + 1}`, endpointId: e.id, status: 'pending', startedAt: null, endedAt: null }))) };
   const controllers = state.requests.map(() => new AbortController());
   let cancelled = false;
   const publish = () => {
@@ -44,7 +45,7 @@ export function startMediaBenchmark(config: MediaConfig, endpoints: EndpointConf
     try {
       if (config.mode === 'image') {
         const body = await mediaJson(await fetcher(mediaUrl(endpoint.baseUrl, 'images/generations'), {
-          method: 'POST', headers: { ...mediaHeaders(endpoint), 'Content-Type': 'application/json' }, body: JSON.stringify(imageBody(config, endpoint)), signal,
+          method: 'POST', headers: { ...mediaHeaders(endpoint), 'Content-Type': 'application/json' }, body: JSON.stringify(imageBody(config, endpoint, index % requestsPerEndpoint)), signal,
         }));
         signal.throwIfAborted();
         request.assets = imageAssets(body, endpoint.baseUrl);

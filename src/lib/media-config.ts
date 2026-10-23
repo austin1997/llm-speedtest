@@ -14,7 +14,7 @@ export function defaultMediaSettings(mode: MediaMode, prompt: string): MediaSett
     compare: false,
   };
 }
-export const mediaBounds = { width: [64, 4096], height: [64, 4096], batchSize: [1, 10], steps: [1, 100], seconds: [1, 30], fps: [1, 60], timeoutSeconds: [30, 1800] } as const;
+export const mediaBounds = { width: [64, 4096], height: [64, 4096], batchSize: [1, 16], steps: [1, 100], seconds: [1, 30], fps: [1, 60], timeoutSeconds: [30, 1800] } as const;
 export function validateMediaConfig(config: MediaConfig): void {
   if (!config.prompt.trim() || config.prompt.length > 10000) throw new LocalizedError('media.invalidPrompt');
   for (const [key, [min, max]] of Object.entries(mediaBounds)) {

@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jw1sAAAAASUVORK5CYII=';
 const video = readFileSync(new URL('./sample.mp4', import.meta.url));
 const jobs = new Map();
+const imageRequests = new Map();
 let sequence = 0;
-export function resetMedia() { jobs.clear(); sequence = 0; }
+export function resetMedia() { jobs.clear(); imageRequests.clear(); sequence = 0; }
 export async function handleMedia(req, res, requests) {
   const path = new URL(req.url, 'http://fixture').pathname;
   if (!/\/v1\/(images\/generations|videos(?:\/.*)?)$/.test(path) && !path.endsWith('/fixture.png')) return false;
@@ -17,8 +18,11 @@ export async function handleMedia(req, res, requests) {
     requests.push({ url: path, method: req.method, body, at: Date.now(), hasAuth: Boolean(req.headers.authorization) });
     if (path.startsWith('/media-error')) { json({ detail: 'fixture: unsupported size' }, 422); return true; }
     if (path.endsWith('/images/generations')) {
+      const index = imageRequests.get(path) ?? 0;
+      imageRequests.set(path, index + 1);
       const data = Array.from({ length: body.n ?? 1 }, () => path.startsWith('/media-url') ? { url: 'http://127.0.0.1:4174/fixture.png' } : { b64_json: png });
-      const timer = setTimeout(() => json({ data, inference_time_s: .1 }), path.startsWith('/media-slow') ? 10000 : 300);
+      const delay = path.startsWith('/media-staggered') ? [3000, 150, 6000][(body.seed ?? index) % 3] : path.startsWith('/media-slow') ? 10000 : 300;
+      const timer = setTimeout(() => json({ data, inference_time_s: .1 }), delay);
       res.on('close', () => clearTimeout(timer));
     } else {
       const id = `fixture-${++sequence}`;

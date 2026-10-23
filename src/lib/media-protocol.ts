@@ -14,9 +14,10 @@ export function mediaUrl(base: string, resource: 'models' | 'images/generations'
 export function mediaHeaders(endpoint: EndpointConfig): Record<string, string> {
   return endpoint.apiKey.trim() ? { Authorization: `Bearer ${endpoint.apiKey.trim()}` } : {};
 }
-export function imageBody(config: MediaConfig, endpoint: EndpointConfig) {
-  return { model: endpoint.model.trim(), prompt: config.prompt, size: `${config.width}x${config.height}`, n: config.batchSize,
-    num_inference_steps: config.steps, response_format: 'b64_json', ...(config.seed !== null ? { seed: config.seed } : {}) };
+export function imageBody(config: MediaConfig, endpoint: EndpointConfig, imageIndex = 0) {
+  // Each image can return independently; matching A/B positions use the same seed.
+  return { model: endpoint.model.trim(), prompt: config.prompt, size: `${config.width}x${config.height}`, n: 1,
+    num_inference_steps: config.steps, response_format: 'b64_json', ...(config.seed !== null ? { seed: (config.seed + imageIndex) % 2147483648 } : {}) };
 }
 export function aspectRatio(width: number, height: number): string {
   let a = width, b = height;

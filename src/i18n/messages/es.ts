@@ -50,7 +50,7 @@ export const es: Catalog = {
   "media.state": "Estado",
   "media.error": "Detalles del error",
   "media.trend": "Rendimiento acumulado a lo largo del tiempo",
-  "media.imageNote": "La latencia de imagen se mide por solicitud de lote e incluye transferencia y análisis JSON. La preparación de la vista previa se mide aparte. Menor latencia es mejor.",
+  "media.imageNote": "El lote usa solicitudes simultáneas de una imagen y muestra cada imagen al completarse. La latencia se mide por imagen e incluye transferencia y análisis JSON. La preparación de la vista previa se mide aparte. Menor latencia es mejor.",
   "media.videoNote": "La latencia incluye cola y sondeo cada segundo, pero no la descarga. No es tiempo puro de inferencia. RTF = tiempo de finalización / duración real del clip (solicitada si es estimada); menor es mejor.",
   "media.throughputNote": "Rendimiento = resultados correctos / tiempo total, incluida la espera de solicitudes fallidas y canceladas. La latencia media solo incluye solicitudes correctas.",
 

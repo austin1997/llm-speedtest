@@ -52,7 +52,7 @@ export const en = {
   "media.state": "Status",
   "media.error": "Error details",
   "media.trend": "Cumulative throughput over elapsed time",
-  "media.imageNote": "Image completion latency is measured per batch request and includes response transfer and JSON parsing. Preview preparation is separate. Lower latency is better.",
+  "media.imageNote": "Batch images use concurrent single-image requests and are previewed as each completes. Latency is measured per image, including response transfer and JSON parsing. Preview preparation is separate. Lower latency is better.",
   "media.videoNote": "Completion latency includes queueing and 1-second polling intervals, but excludes file download. It is not pure inference time. RTF = completion seconds / actual clip seconds (requested duration when estimated); lower is better.",
   "media.throughputNote": "Throughput = successful outputs / elapsed round time, including failed and cancelled requests. Latency averages include successful requests only.",
 
